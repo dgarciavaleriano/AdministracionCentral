@@ -1,7 +1,14 @@
-from cryptography.fernet import Fernet
-import base64
 import os
-from typing import Tuple
+import re
+import bcrypt
+import base64
+import hashlib
+from cryptography.fernet import Fernet
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from typing import Tuple, Optional
+
+
 
 class DataEncryptor:
     """
@@ -95,31 +102,6 @@ class DataEncryptor:
         
         with open(output_path, 'wb') as file:
             file.write(decrypted_data)
-
-# Usage example
-# if __name__ == "__main__":
-#     # 1. Create encryptor (automatically generates key)
-#     encryptor = DataEncryptor()
-#     key = encryptor.get_key()
-#     print(f"🔑 Saved key: {key.decode('utf-8')}")
-    
-#     # 2. Encrypt data
-#     text = "Confidential user information"
-#     encrypted_data = encryptor.encrypt(text)
-#     print(f"🔒 Encrypted: {encrypted_data}")
-    
-#     # 3. Decrypt data (need the same key)
-#     encryptor2 = DataEncryptor(key)  # Use the same key
-#     decrypted_data = encryptor2.decrypt(encrypted_data)
-#     print(f"🔓 Decrypted: {decrypted_data}")
-
-
-import hashlib
-import base64
-import os
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-from typing import Optional
 
 class AESDataEncryptor:
     """
@@ -234,22 +216,6 @@ class AESDataEncryptor:
         
         return unpadded_data.decode('utf-8')
 
-
-# Usage example for AES
-# if __name__ == "__main__":
-#     aes_encryptor = AESDataEncryptor("my_secure_password_123")
-    
-#     text = "Important data with AES"
-#     encrypted = aes_encryptor.encrypt(text)
-#     print(f"🔒 AES Encrypted: {encrypted}")
-    
-#     decrypted = aes_encryptor.decrypt(encrypted)
-#     print(f"🔓 AES Decrypted: {decrypted}")
-
-import bcrypt
-import re
-from typing import Tuple, Optional
-
 class PasswordHasher:
     """
     Class to hash and verify passwords (irreversible)
@@ -275,9 +241,7 @@ class PasswordHasher:
         Returns:
             Password hash (to store in database)
         """
-        if not password or len(password) < 6:
-            raise ValueError("Password must be at least 6 characters long")
-        
+
         # Convert to bytes and hash
         password_bytes = password.encode('utf-8')
         salt = bcrypt.gensalt(rounds=self.rounds)
@@ -311,8 +275,7 @@ class PasswordHasher:
         Hash with SHA-256 first (for very long passwords >72 bytes)
         Useful if you allow extremely long passwords
         """
-        import hashlib
-        
+
         # First SHA-256
         sha_hash = hashlib.sha256(password.encode('utf-8')).digest()
         
@@ -324,7 +287,6 @@ class PasswordHasher:
     
     def verify_with_sha256(self, password: str, hashed: str) -> bool:
         """Verify password that was hashed with SHA-256 first"""
-        import hashlib
         
         sha_hash = hashlib.sha256(password.encode('utf-8')).digest()
         hashed_bytes = hashed.encode('utf-8')
@@ -357,5 +319,3 @@ class PasswordHasher:
             return False, "Password must have at least one special character"
         
         return True, "Strong password"
-
-
