@@ -9,7 +9,6 @@ from Crypto.Util.Padding import pad, unpad
 from typing import Tuple, Optional
 
 
-
 class DataEncryptor:
     """
     Class to encrypt/decrypt recoverable data using Fernet
