@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status
 
-from models.user import UserCreate, UserPut
+from models.user import UserCreate, UserPut, UserPatch
 
 router: APIRouter = APIRouter()
 
@@ -31,5 +31,17 @@ async def put_user(user: UserPut):
 
     return {
         "message": "Endpoint de actualización total (PUT) de usuario",
+        "user_id": user_id
+    }
+
+@router.patch("/{user_id}", status_code=status.HTTP_200_OK)
+async def patch_user(user: UserPatch):
+
+    # Logica de actualización de usuario
+
+    user_id = user.user_id
+
+    return {
+        "message": "Endpoint de actualización parcial (PATCH) de usuario",
         "user_id": user_id
     }
