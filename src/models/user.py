@@ -6,7 +6,7 @@ class UserCreate(BaseModel):
     password_hash: str
 
 class UserPut(BaseModel):
-    id: str
+    user_id: str
     username: str
     password_hash: str
     display_name: str

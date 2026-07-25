@@ -27,7 +27,7 @@ async def put_user(user: UserPut):
 
     # Logica de actualización de usuario
 
-    user_id = user.id
+    user_id = user.user_id
 
     return {
         "message": "Endpoint de actualización total (PUT) de usuario",
