@@ -2,5 +2,13 @@ from pydantic import BaseModel, EmailStr
 
 
 class UserCreate(BaseModel):
-	username: str
+    username: str
+    password_hash: str
+
+class UserPut(BaseModel):
+    username: str
+    password_hash: str
+    display_name: str
+    email: EmailStr
+
     password_hash: str
