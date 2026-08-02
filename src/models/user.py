@@ -1,4 +1,6 @@
 from pydantic import BaseModel, EmailStr
+from user_status import UserStatus
+from invalid_user_status_transition_exception import InvalidUserStatusTransition
 
 class User:
     _user_id: str
@@ -6,6 +8,7 @@ class User:
     _password_hash: str
     _display_name: str
     _email: str
+    _status: UserStatus
 
     def __init__(
             self,
@@ -14,6 +17,7 @@ class User:
             some_password_hash: str,
             some_display_name: str,
             some_email: str,
+            some_status: UserStatus
         ):
         self._user_id = some_user_id
 
@@ -28,6 +32,8 @@ class User:
         self._guard_email(some_email=some_email)
         self._email = some_email
 
+        self._
+
     def _guard_username(self, some_username: str):
         if some_username.strip() == "":
             raise ValueError("El nombre de usuario no puede estar vacío")
@@ -40,6 +46,10 @@ class User:
         if "@" not in some_email:
             raise ValueError("Email con formato erróneo")
 
+    def _guard_status(self, some_status: UserStatus):
+        if not self._status.can_transition_to(some_status):
+            raise InvalidUserStatusTransition(self._status, some_status)
+        
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, User):
             return NotImplemented
