@@ -1,0 +1,36 @@
+version: '1.0'
+
+services:
+  administracioncentral-db:
+    image: postgres:15
+    container_name: administracioncentral-db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+      POSTGRES_DB: administracion_central
+    ports:
+      - "5432:5432"
+    volumes:
+      - administracion-central-volume:/var/lib/postgresql/data
+    networks:
+      - administracion-central-network
+    
+  administracioncentral:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    networks:
+      - administracion-central-network
+    ports:
+      - "8000:8000"
+    depends_on:
+        - administracioncentral-db
+
+volumes:
+  administracion-central-volume:
+  
+networks:
+  administracion-central-network:
+    driver: bridge
