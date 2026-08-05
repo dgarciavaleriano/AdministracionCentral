@@ -1,11 +1,9 @@
-from dotenv import load_dotenv
-import os
 import logging
 
-load_dotenv()
+from config.settings import settings
 
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO "),
+    level=settings.log_level,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 

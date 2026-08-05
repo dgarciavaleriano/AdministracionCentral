@@ -11,6 +11,42 @@ jobs:
       contents: read
       pull-requests: write
 
+    env:
+      # El host es localhost, no el nombre del servicio: el job no usa `container:`,
+      # asi que los pasos corren en el runner y solo ven los puertos publicados.
+      DATABASE_URL: postgresql+psycopg://app:app@localhost:5432/administracion
+      TEST_DATABASE_URL: postgresql+psycopg://app:app@localhost:5433/administracion_test
+
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: administracion
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d administracion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      # Base separada para los tests de migraciones: hacen downgrade hasta base.
+      db_test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: administracion_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d administracion_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -23,15 +59,33 @@ jobs:
           python-version: '3.14'
 
       - name: Install dependencies
-        run: uv sync
+        # --locked falla si uv.lock no cuadra con pyproject.toml
+        run: uv sync --locked
+
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+
+      - name: Check for pending migrations
+        run: uv run alembic check
 
       - name: Run tests and save exit code
         id: tests
+        # `shell: bash` activa pipefail: sin el, el exit code seria el de `tee`
+        # y un test roto pasaria como verde.
+        shell: bash
         run: |
             mkdir -p test-results
-            PYTHONPATH=src uv run pytest tests/ --capture=tee-sys > test-results/results.log
+            # 2>&1: sin esto el artefacto queda VACIO si pytest aborta antes de arrancar
+            uv run pytest --test-alembic --capture=tee-sys 2>&1 | tee test-results/results.log
         continue-on-error: true
-      
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+
       - name: Fail the job if tests failed
         if: steps.tests.outcome == 'failure'
         run: exit 1
