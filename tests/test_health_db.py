@@ -9,14 +9,14 @@ from fastapi.testclient import TestClient
 
 from app import app
 
-# El engine se construye al importar `db.py`, así que este test usa la base a la
-# que apunte DATABASE_URL. Solo hace SELECT 1, es inocuo.
+# Usa la base a la que apunte DATABASE_URL, porque el engine se construye al
+# importar `db.py`. Solo hace SELECT 1, es inocuo.
 pytestmark = pytest.mark.db
 
 
 def test_health_db_ok():
     with TestClient(app) as client:
-        respuesta = client.get("/health/db")
+        response = client.get("/health/db")
 
-    assert respuesta.status_code == 200
-    assert respuesta.json() == {"db": "ok"}
+    assert response.status_code == 200
+    assert response.json() == {"db": "ok"}

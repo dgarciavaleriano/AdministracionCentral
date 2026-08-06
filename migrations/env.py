@@ -1,7 +1,7 @@
 """Configuración de Alembic.
 
-`alembic.ini` tiene `prepend_sys_path = %(here)s/src`, por eso se puede
-importar `config.*` y `storage.*` desde aquí.
+`alembic.ini` tiene `prepend_sys_path = %(here)s/src`, por eso se pueden importar
+`config.*` y `storage.*` desde aquí.
 """
 
 from logging.config import fileConfig
@@ -13,8 +13,7 @@ from sqlalchemy.engine import Connection
 from config.settings import settings
 from storage.connectors.db import Base
 
-# Registra todas las entidades en Base.metadata.
-import storage.entities  # noqa: F401
+import storage.entities  # noqa: F401  — registra las entidades en Base.metadata
 
 config = context.config
 
@@ -29,6 +28,8 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        # Ambas vienen desactivadas de fábrica: sin ellas, cambiar String(50) por
+        # String(100) o tocar un server_default pasaría desapercibido.
         compare_type=True,
         compare_server_default=True,
     )
@@ -44,9 +45,8 @@ def run_migrations_online() -> None:
     if connectable is None:
         connectable = create_engine(
             settings.database_url,
-            poolclass=pool.NullPool,
-            # Sin esto, con la base caída cualquier comando de alembic se queda
-            # colgado 130 s (el default de psycopg) en vez de fallar.
+            poolclass=pool.NullPool,  # una migración es de usar y tirar
+            # Sin esto, con la base caída cualquier comando se cuelga 130 s.
             connect_args={"connect_timeout": 5},
         )
 

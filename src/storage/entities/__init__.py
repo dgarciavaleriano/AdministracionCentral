@@ -1,7 +1,8 @@
-"""Cada entidad nueva, una línea más aquí.
+"""Registro de entidades.
 
 Alembic solo ve las tablas cuyas clases se hayan importado: si falta una, el
-autogenerate produce una migración vacía sin avisar.
+autogenerate produce una migración vacía sin avisar. Cada entidad nueva, una
+línea más aquí.
 """
 
 from storage.entities.plan import Plan

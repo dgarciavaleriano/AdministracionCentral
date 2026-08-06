@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def alembic_config():
-    # pytest-alembic resuelve "alembic.ini" y "migrations" contra el directorio
-    # de trabajo, no contra el rootdir de pytest: forzamos rutas absolutas.
+    # pytest-alembic resuelve estas rutas contra el directorio de trabajo, no
+    # contra el rootdir de pytest: las forzamos absolutas.
     return {
         "file": str(ROOT / "alembic.ini"),
         "script_location": str(ROOT / "migrations"),
@@ -31,15 +31,14 @@ def alembic_config():
 @pytest.fixture
 def alembic_engine():
     # Las variables de entorno ganan al .env, así que basta un TEST_DATABASE_URL
-    # mal puesto para que estos tests dropeen la tabla de la base de trabajo.
+    # mal puesto para que estos tests dropeen la base de trabajo.
     if settings.test_database_url == settings.database_url:
         pytest.fail(
             f"TEST_DATABASE_URL apunta a la misma base que DATABASE_URL "
             f"({settings.database_url}): estos tests harían DROP TABLE sobre ella."
         )
 
-    # connect_timeout: sin él, si db_test no está levantada pytest se queda
-    # colgado 130 s sin imprimir nada en vez de fallar.
+    # Sin connect_timeout, con db_test parada pytest se cuelga 130 s sin imprimir nada.
     engine = create_engine(
         settings.test_database_url, connect_args={"connect_timeout": 5}
     )
