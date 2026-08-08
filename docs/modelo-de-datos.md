@@ -60,122 +60,77 @@ migrations/env.py               compara Base.metadata con la base real
 migrations/versions/            una migración por cambio, versionada en git
 ```
 
-**`Base` es la pieza central.** Todas las entidades heredan de ella, así que todas quedan registradas
-en `Base.metadata`: el catálogo de lo que el código cree que existe en la base. Ese objeto es lo que
-Alembic lee después para comparar.
+`Base.metadata` es el punto de contacto entre la aplicación y Alembic: el único sitio del que Alembic
+saca "lo que debería existir". Todo lo demás son detalles de conexión.
 
-`Base` lleva además dos cosas que afectan a todas las tablas:
+Tres cosas del montaje que no se deducen leyendo el código:
 
-- **`NAMING_CONVENTION`** — la plantilla con la que se nombran índices y restricciones. Sin ella,
-  Postgres inventa los nombres y Alembic no sabe cómo referirse a una restricción para borrarla en un
-  `downgrade`. Es la razón de que el error de email duplicado diga exactamente
-  `violates unique constraint "uq_users_email"`. Queda congelada desde la primera migración.
-- **`type_annotation_map`** — hace que todo `Mapped[datetime]` sea `TIMESTAMPTZ` sin declararlo.
+- **`NAMING_CONVENTION` está congelada** desde la primera migración. Con los nombres que inventa
+  Postgres, un `downgrade` no puede referirse a la restricción que tiene que borrar. Cambiar la
+  plantilla ahora obliga a renombrar restricciones a mano en todos los entornos.
+- **`type_annotation_map` mapea `datetime` a `TIMESTAMPTZ`** para todas las tablas, así que la zona
+  horaria no se declara columna a columna.
+- **El registro es por import.** Una entidad que nadie importa no está en `Base.metadata`, y el
+  autogenerate produce una migración vacía sin error. De ahí `entities/__init__.py`.
 
-Una entidad solo entra en el catálogo si Python la ha **importado**. Un fichero de entidad que nadie
-importa es invisible para Alembic; de ahí el registro explícito en `src/storage/entities/__init__.py`.
+### Sesiones en los endpoints
 
-### Cómo se accede a la base desde un endpoint
+Los endpoints que tocan la base se declaran `def`, no `async def`: el engine es síncrono y FastAPI
+saca las funciones `def` a un threadpool. Con `async def` cada consulta bloquearía el event loop.
 
-```python
-@router.get("/db")
-def check_db(db: Session = Depends(get_db)):
-    db.execute(text("SELECT 1"))
-    return {"db": "ok"}
-```
+`get_db` cierra la sesión en el `finally` y `expire_on_commit` está en su valor por defecto. Un
+endpoint que devuelva la entidad ORM directamente falla: FastAPI la serializa después del cierre y el
+acceso a un atributo expirado intenta releer con la sesión ya muerta. La conversión a Pydantic va
+dentro del endpoint, para eso está `src/models/`.
 
-Es una función `def` normal, **no `async def`**: SQLAlchemy aquí es síncrono y FastAPI ejecuta estos
-endpoints en un threadpool, sin bloquear el event loop. Si se declarase `async def`, cada consulta
-bloquearía el bucle entero.
-
-`get_db` cierra la sesión en su `finally`. Consecuencia: un endpoint no puede devolver directamente
-un objeto ORM, porque FastAPI lo serializa después de ese cierre. Se convierte a Pydantic dentro del
-endpoint, que es justo para lo que está `src/models/`.
+`autoflush=False`: las escrituras pendientes no se emiten antes de cada consulta. Para leer en la
+misma transacción algo que acabas de escribir, `flush()` explícito.
 
 ---
 
 ## Cómo funciona Alembic
 
-### El problema que resuelve
+`create_all()` solo crea las tablas que faltan: sobre una que ya existe no altera nada ni avisa. Por
+eso el esquema se versiona en ficheros en vez de derivarse del modelo en tiempo de arranque.
 
-Las entidades describen tablas en Python; Postgres tiene tablas de verdad. Son dos cosas distintas y
-se separan en cuanto alguien toca una sin tocar la otra.
+### Estado y cadena
 
-`Base.metadata.create_all()` no sirve: solo crea las tablas que **faltan**. Sobre una que ya existe no
-hace nada —ni añade la columna nueva, ni avisa—, así que funciona en local con la base vacía y falla en
-cuanto hay datos. La alternativa de borrar y recrear pierde los datos.
+Cada fichero de `versions/` declara `revision` y `down_revision`, y esa referencia al anterior forma la
+cadena. `base` es el estado vacío, `head` el último eslabón. Los ids son aleatorios: el orden lo da la
+cadena, no el nombre del fichero ni la fecha.
 
-Alembic convierte cada cambio de esquema en **un fichero de Python versionado en git** que sabe
-aplicarse y deshacerse. Es control de versiones para la estructura de la base.
+Lo aplicado vive en `alembic_version`, una tabla de una sola fila. **Registra qué se aplicó, no qué
+existe:** un `ALTER TABLE` a mano por `psql` la deja mintiendo, y a partir de ahí el autogenerate
+produce diffs falsos.
 
-### La cadena de revisiones
+### `env.py`
 
-Cada fichero de `migrations/versions/` tiene un id y apunta al anterior:
+Se ejecuta en cada comando de Alembic. Lo que decide:
 
-```python
-revision = "cc9184fc36d1"   # el mío
-down_revision = None        # el anterior; None = soy el primero
-```
+- **`target_metadata = Base.metadata`**, previo `import storage.entities` para poblarlo.
+- **De dónde sale la URL.** `sqlalchemy.url` está comentado en `alembic.ini` a propósito: la URL viene
+  de `settings`, así que aplicación y migraciones comparten fuente y no hay credenciales versionadas.
+- **Qué conexión usar.** Si `config.attributes["connection"]` trae una, la usa en lugar de abrir la
+  suya. Es el punto de entrada de pytest-alembic y lo único que impide que `test_up_down_consistency`
+  —que hace `downgrade base`— corra contra la base de desarrollo.
+- **`compare_type=True` y `compare_server_default=True`**, ambas desactivadas por defecto en Alembic.
+  Sin ellas, un `String(50)` → `String(100)` o un cambio de `server_default` no se detectan.
 
-Eso los encadena, y esa cadena es el historial:
+### Límites del autogenerate
 
-```
-base ──> cc9184fc36d1 ──> (la siguiente) ──> head
-         create_plans_and_users
-```
+Compara estructura contra `Base.metadata`; no interpreta intenciones. Detecta tablas, columnas,
+nullable, índices, unique, claves foráneas y —con las opciones anteriores— tipos y defaults.
 
-`base` es el estado anterior a todo; `head`, el último eslabón. Los ids son aleatorios, no
-correlativos: el orden lo da la cadena, no el nombre del fichero.
+No detecta renombrados (los ve como drop + add, con pérdida de datos), triggers, funciones, vistas,
+condiciones de índices parciales, ni nada que dependa del contenido de las filas. Los casos concretos y
+su corrección están en [migrations/README.md](../migrations/README.md).
 
-### El marcador
+### Transaccionalidad
 
-Alembic crea en la base una tabla suya, `alembic_version`, con **una sola fila**: el id de la última
-migración aplicada. Ese es todo el estado que guarda.
-
-```
-administracion=# SELECT * FROM alembic_version;
- version_num
---------------
- cc9184fc36d1
-```
-
-**La fila dice qué se aplicó, no qué hay realmente.** Si alguien modifica una tabla a mano por `psql`,
-Alembic no se entera y el marcador miente. De ahí que el esquema solo se toque por migración.
-
-### Qué hace `env.py`
-
-Se ejecuta en cada comando de Alembic y hace cuatro cosas:
-
-1. **Importa `storage.entities`**, que es lo que llena `Base.metadata`. Sin esa línea toda migración
-   saldría vacía.
-2. **Fija `target_metadata = Base.metadata`**: el "lo que quiero" contra el que comparar.
-3. **Decide a qué base conectarse.** Si alguien inyectó una conexión en `config.attributes["connection"]`
-   la usa —eso lo hace pytest-alembic, y es lo que mantiene los tests lejos de la base de desarrollo—;
-   si no, abre una con `settings.database_url`. La URL **no** está en `alembic.ini`: `sqlalchemy.url`
-   está comentado a propósito, para que app y migraciones tengan una sola fuente de verdad y ninguna
-   credencial acabe versionada.
-4. **Activa `compare_type` y `compare_server_default`**, que vienen desactivadas de fábrica. Sin ellas,
-   cambiar `String(50)` a `String(100)` pasaría desapercibido.
-
-### Qué ve el autogenerate y qué no
-
-Alembic **compara**, no adivina intenciones: lee la estructura real de Postgres, la contrasta con
-`Base.metadata` y escribe las diferencias.
-
-Detecta bien tablas y columnas añadidas o borradas, cambios de nullable, índices, restricciones unique,
-claves foráneas y —con las opciones activadas— tipos y valores por defecto.
-
-No detecta nada que exija entender la intención ni nada que no esté en la estructura: renombrados,
-triggers, funciones, vistas, condiciones de índices parciales y cualquier cosa relacionada con el
-contenido de las filas. Por eso el fichero generado se lee siempre antes de aplicarlo. La lista de
-casos y cómo corregir cada uno está en [migrations/README.md](../migrations/README.md).
-
-### Una migración no se queda a medias
-
-`env.py` envuelve la ejecución en una transacción y Postgres soporta DDL transaccional: si hay que
-aplicar cinco migraciones y la cuarta falla, **se deshacen las cinco** y la base queda como estaba. No
-existe el estado "medio migrado" que sí sufren otros motores. Es una red de seguridad real, pero no
-sustituye al backup en producción.
+`env.py` envuelve la ejecución en una transacción y Postgres soporta DDL transaccional: si
+`upgrade head` aplica cinco migraciones y la cuarta falla, se revierten las cinco. No hay estado
+intermedio. Es una transacción **por ejecución**, no por migración: `transaction_per_migration` no está
+activado. No sustituye al backup en producción.
 
 ---
 
@@ -230,41 +185,19 @@ erDiagram
 
 ---
 
-## Qué se puede comprobar
+## Comprobado
 
-Salida real de la prueba funcional sobre la base recién creada:
+Prueba funcional sobre la base recién creada:
 
-```
-1. Crear un plan
-   id         : 84bf7acc-e1c0-4ccd-b644-fc9b32570a0f   (lo generó Postgres, tipo UUID)
-   is_active  : True                                   (valor por defecto de la columna)
-
-2. Dar de alta un usuario con ese plan
-   status         : 'active'      (por defecto)
-   email_verified : False         (por defecto)
-   created_at     : 2026-08-02 14:40:46.245481+00:00
-   ¿con zona horaria? True
-
-3. La integridad se cumple
-   email repetido   -> RECHAZADO (duplicate key value violates unique constraint "uq_users_email")
-   plan inexistente -> RECHAZADO (violates foreign key constraint)
-   ¿el error filtra el password_hash? False
-
-4. ON DELETE RESTRICT
-   borrar un plan con usuarios -> RECHAZADO
-
-5. JSONB
-   búsqueda por contenido -> ana@ejemplo.com, tema=oscuro
-   tras mutar in-place    -> {'tema': 'oscuro', 'idioma': 'es', 'notificaciones': True}
-
-6. updated_at se actualiza solo
-   antes   : 14:40:46.313983+00:00
-   después : 14:40:46.385575+00:00
-```
-
-El punto 3 importa: **las excepciones de base de datos no filtran datos personales al log.**
-Sin `hide_parameters=True`, un alta con email repetido dejaría el hash de la contraseña, el
-teléfono y la dirección fiscal escritos en el log del servidor.
+- Los defaults los aplica el servidor, no Python: `gen_random_uuid()`, `now()`, `'active'`, `false`.
+  `created_at` vuelve con offset, o sea `TIMESTAMPTZ` real.
+- Integridad: email duplicado → `uq_users_email`; `plan_id` inexistente → violación de FK; borrar un
+  plan con usuarios → rechazado por el `RESTRICT`.
+- JSONB: consulta por contenido, y una mutación in-place persiste gracias a `MutableDict`.
+- `updated_at` cambia solo en el UPDATE.
+- **Las excepciones no filtran datos personales.** Sin `hide_parameters=True`, el alta con email
+  duplicado dejaría `password_hash`, teléfono y dirección fiscal en el log del servidor: SQLAlchemy
+  incluye `[parameters: {...}]` en el `str()` de toda excepción de BD, con `echo` o sin él.
 
 ---
 

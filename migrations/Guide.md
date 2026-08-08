@@ -7,17 +7,37 @@ Manual de uso: arrancar, cambiar el esquema, escribir una migración y salir de 
 
 Las rutas de este documento son relativas a la raíz del repositorio.
 
-## Arranque
+## Arrancar y parar
 
 ```powershell
-docker compose up -d --wait
-uv sync
-uv run alembic upgrade head
+docker compose up -d --wait   # Postgres; --wait espera a que acepte conexiones
+uv sync                       # dependencias
+uv run alembic upgrade head   # crea o actualiza las tablas
 uv run alembic current        # debe imprimir la revisión, no vacío
 ```
 
+La API, en otra terminal: `uv run python src/main.py` (host y puerto salen de `settings`).
+
 No hace falta tocar el `.env`: `settings.database_url` apunta por defecto al compose local.
 Para otra base, exporta `DATABASE_URL` (las variables de entorno ganan al `.env`).
+
+Para parar, **la diferencia entre los cuatro comandos es si pierdes los datos o no**:
+
+| Comando | Qué hace | Los datos de `db` |
+|---|---|---|
+| `Ctrl+C` en la terminal de la API | para la API, la base sigue | intactos |
+| `docker compose stop` | para los contenedores | **se conservan** |
+| `docker compose start` | los vuelve a arrancar | — |
+| `docker compose down` | para y borra los contenedores | **se conservan**, viven en el volumen |
+| `docker compose down -v` | además borra los volúmenes | **se destruyen** |
+
+`down -v` es el único que borra datos, y no avisa. Después hay que volver a `up` y a
+`alembic upgrade head`, porque la base nace vacía: `initdb` solo aplica las variables `POSTGRES_*`
+sobre un datadir vacío, así que también es la forma de arreglar una base creada con la configuración
+equivocada.
+
+`db_test` es la excepción: vive en tmpfs, así que su contenido desaparece con cualquier parada. Es
+deliberado, no hay nada que conservar ahí.
 
 ## Flujo por cada cambio de esquema
 
@@ -42,6 +62,51 @@ La migración se commitea **en el mismo commit** que la entidad. Una entidad sin
 en rojo (`alembic check` corre allí); una migración sin su entidad la resucita el próximo autogenerate.
 
 Antes de aplicarla contra algo que importe, ver **Probar una migración sin riesgo** más abajo.
+
+### Crear una tabla nueva
+
+Igual que el flujo de arriba, más un paso que es el fallo más frecuente del proyecto: **registrar la
+entidad**. Sin él, el autogenerate no la ve y genera una migración vacía sin avisar.
+
+```python
+# src/storage/entities/document.py
+import uuid
+
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from storage.connectors.db import Base
+from storage.entities.mixins import Timestamped, UUIDPrimaryKey
+
+
+class Document(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "documents"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    storage_key: Mapped[str] = mapped_column(String(512))
+```
+
+```python
+# src/storage/entities/__init__.py   <-- SIN ESTO LA MIGRACIÓN SALE VACÍA
+from storage.entities.document import Document
+
+__all__ = ["Document", "Plan", "User"]
+```
+
+Los mixins de [mixins.py](../src/storage/entities/mixins.py) ponen `id` UUID, `created_at` y
+`updated_at`, así que no se declaran a mano. `UUIDPrimaryKey` + `CreatedAt` si la tabla no necesita
+`updated_at`.
+
+Recordatorios al declarar columnas:
+
+- `Mapped[str]` es NOT NULL; `Mapped[str | None]` admite NULL. No se escribe `nullable=`.
+- `ondelete` va en `ForeignKey`, nunca en `relationship()`: `relationship` no emite DDL.
+- Una FK a `users` indexada: Postgres **no** crea índice automático en el lado que apunta, y sin él
+  cada borrado o comprobación de integridad hace un recorrido completo de la tabla.
+
+Después, el flujo normal: `alembic check` → `revision --autogenerate` → revisar → `upgrade head`.
 
 ## Comandos
 
@@ -165,8 +230,9 @@ detecta ningún check.
   el literal JSON `null`, que satisface el `NOT NULL` y se relee como `None` en vez de dict. Ninguna
   de las dos cosas cambia el DDL, así que no requieren migración.
 - **`connect_args={"connect_timeout": N}` en todo `create_engine`.** `pool_timeout` solo limita la
-  espera por un hueco libre del pool, no el connect TCP: sin `connect_timeout`, psycopg espera **130 s**
-  (su valor por defecto) aunque el sistema operativo rechace la conexión al instante.
+  espera por un hueco libre del pool, no el connect TCP. Y sin `connect_timeout` no hay límite propio:
+  manda el sistema operativo, que tarda **~130 s** en agotar los reintentos TCP cuando los paquetes se
+  pierden (contenedor caído, IP equivocada). Un puerto que rechaza activamente sí falla al instante.
 
 ## Tests
 
@@ -301,7 +367,7 @@ En el momento en que haya un entorno desplegado, `pg_dump` programado y point-in
 | `uv run uvicorn` bloqueado en Windows | Smart App Control. Usar `uv run python -m uvicorn` |
 | `psql` se queda en `--More--` | Añadir `-P pager=off` |
 | Un cambio en un campo JSONB no se guarda, sin error | Falta `MutableDict` en esa columna |
-| Cualquier cosa tarda exactamente ~130 s en fallar | Falta `connect_timeout` en ese `create_engine` |
+| Cualquier cosa tarda ~130 s en fallar | Falta `connect_timeout` en ese `create_engine`: manda el timeout TCP del sistema operativo |
 
 `alembic.ini` se lee con `encoding="locale"`, no UTF-8: sus comentarios van **sin tildes** o salen como mojibake en Linux.
 

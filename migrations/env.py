@@ -46,7 +46,7 @@ def run_migrations_online() -> None:
         connectable = create_engine(
             settings.database_url,
             poolclass=pool.NullPool,  # una migración es de usar y tirar
-            # Sin esto, con la base caída cualquier comando se cuelga 130 s.
+            # Sin esto, con la base inaccesible cualquier comando se cuelga ~130 s.
             connect_args={"connect_timeout": 5},
         )
 

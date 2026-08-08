@@ -38,7 +38,8 @@ def alembic_engine():
             f"({settings.database_url}): estos tests harían DROP TABLE sobre ella."
         )
 
-    # Sin connect_timeout, con db_test parada pytest se cuelga 130 s sin imprimir nada.
+    # Sin connect_timeout, con db_test parada pytest se cuelga ~130 s (reintentos
+    # TCP del sistema operativo) sin imprimir nada.
     engine = create_engine(
         settings.test_database_url, connect_args={"connect_timeout": 5}
     )

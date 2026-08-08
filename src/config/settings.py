@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     @field_validator("log_level")
     @classmethod
-    def _normalize_log_level(cls, v: str) -> str:
+    def _normalizar_log_level(cls, v: str) -> str:
         return v.strip().upper()
 
 

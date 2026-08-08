@@ -38,8 +38,9 @@ engine = create_engine(
     max_overflow=10,
     pool_recycle=1800,
     pool_timeout=5,  # espera por un hueco LIBRE del pool; no limita el connect
-    # Sin esto psycopg espera 130 s (su default) aunque el SO rechace la conexión
-    # al instante: /health/db tardaría más de dos minutos en devolver el 503.
+    # Sin connect_timeout no hay límite propio y manda el sistema operativo:
+    # ~130 s agotando reintentos TCP cuando los paquetes se pierden (contenedor
+    # caído, IP equivocada). /health/db tardaría eso en devolver el 503.
     connect_args={"connect_timeout": 5},
     echo=False,  # nunca True: volcaría datos personales al log
     # SQLAlchemy mete [parameters: {...}] en el str() de TODA excepción de BD, con
