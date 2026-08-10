@@ -3,7 +3,7 @@
 from sqlalchemy import Boolean, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from storage.connectors.db import Base
+from storage.base import Base
 from storage.entities.mixins import CreatedAt, UUIDPrimaryKey
 
 

@@ -62,6 +62,10 @@ jobs:
         # --locked falla si uv.lock no cuadra con pyproject.toml
         run: uv sync --locked
 
+      # Estatico y sin base de datos: falla rapido si alguien borra datos sin marcarlo.
+      - name: Check destructive migrations
+        run: uv run python scripts/check_destructive_migrations.py
+
       - name: Apply migrations
         run: uv run alembic upgrade head
 

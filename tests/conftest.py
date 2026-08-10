@@ -1,8 +1,5 @@
-"""Fixtures de pytest-alembic.
-
-Los tests de migraciones corren contra `db_test` (puerto 5433), NUNCA contra la
-base de desarrollo: `test_up_down_consistency` hace `downgrade` hasta base, o
-sea DROP de todas las tablas.
+"""Fixtures de pytest-alembic. Corren contra `db_test` (5433), NUNCA contra la base
+de desarrollo: `test_up_down_consistency` hace `downgrade` hasta base.
 
 Levantar antes:  docker compose up -d --wait db_test
 """
@@ -46,11 +43,11 @@ def alembic_engine():
     try:
         with engine.connect():
             pass
-    except OperationalError as exc:
+    except OperationalError as error:
         engine.dispose()
         pytest.fail(
             f"No hay base de datos en {settings.test_database_url}\n"
-            f"Arranca:  docker compose up -d --wait db_test\n({exc.orig})"
+            f"Arranca:  docker compose up -d --wait db_test\n({error.orig})"
         )
 
     try:

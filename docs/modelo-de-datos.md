@@ -1,7 +1,7 @@
 # Capa de persistencia y modelo de datos
 
 Qué hay, cómo está organizado y cómo funciona. **Para trabajar con ello** —arrancar, comandos, escribir
-una migración, resolver errores— está [migrations/README.md](../migrations/README.md); este documento no
+una migración, resolver errores— está [migrations/Guide.md](../migrations/Guide.md); este documento no
 explica ningún comando.
 
 **Stack:** PostgreSQL 17 · SQLAlchemy 2.0 síncrono · driver psycopg 3 · Alembic · pydantic-settings.
@@ -19,11 +19,12 @@ migrations/
     env.py                         se ejecuta en cada comando de alembic
     script.py.mako                 plantilla de los ficheros generados
     versions/                      una migración por fichero, encadenadas
-    README.md                      cómo trabajar con todo esto
+    Guide.md                       cómo trabajar con todo esto
 src/
     config/settings.py             configuración tipada: entorno > .env > defecto
     storage/
-        connectors/db.py           engine, pool, SessionLocal, get_db, Base
+        base.py                    Base: metadata, nombres de restricciones y tipos
+        connectors/db.py           engine, pool, SessionLocal, get_db
         entities/                  las tablas como clases
             __init__.py            registro: cada entidad nueva, una línea más
             mixins.py              columnas comunes: id UUID, created_at, updated_at
@@ -49,16 +50,21 @@ deliberado, y por eso cada uno lo dice en su docstring.
 ## Cómo funciona la capa
 
 ```
-src/config/settings.py          de dónde sale la URL de conexión
-        ↓
-src/storage/connectors/db.py    engine + pool, SessionLocal, get_db, Base
+src/storage/base.py             Base: metadata, naming convention, tipos
         ↓
 src/storage/entities/           plan.py, user.py  →  Base.metadata
         ↓
 migrations/env.py               compara Base.metadata con la base real
         ↓
 migrations/versions/            una migración por cambio, versionada en git
+
+src/config/settings.py  →  src/storage/connectors/db.py   engine + pool, sesiones
 ```
+
+Las dos ramas se cruzan solo en `migrations/env.py`, que necesita el modelo **y** una
+conexión. **Importar el modelo no arrastra el engine**: describir las tablas no requiere
+driver de base de datos ni configuración, y por eso `storage/base.py` está separado de
+`connectors/db.py`.
 
 `Base.metadata` es el punto de contacto entre la aplicación y Alembic: el único sitio del que Alembic
 saca "lo que debería existir". Todo lo demás son detalles de conexión.
@@ -123,7 +129,7 @@ nullable, índices, unique, claves foráneas y —con las opciones anteriores—
 
 No detecta renombrados (los ve como drop + add, con pérdida de datos), triggers, funciones, vistas,
 condiciones de índices parciales, ni nada que dependa del contenido de las filas. Los casos concretos y
-su corrección están en [migrations/README.md](../migrations/README.md).
+su corrección están en [migrations/Guide.md](../migrations/Guide.md).
 
 ### Transaccionalidad
 
@@ -210,7 +216,7 @@ Prueba funcional sobre la base recién creada:
 | psycopg 3, no psycopg2 | Mantenido activamente, soporte real de tipos de Postgres |
 | `ON DELETE RESTRICT`, nunca CASCADE | Decisión de equipo tomada en el issue #8: un borrado en cascada sobre datos personales es irreversible. La supresión es un proceso de **anonimización** controlado |
 | `timestamptz` en todos los instantes | Sin zona, el valor guardado depende de la zona de quien insertó. El contenedor va en UTC y los clientes en Europe/Madrid |
-| UUID en vez de enteros | No revela cuántos usuarios hay ni permite recorrer la tabla probando ids |
+| `id` UUID, no entero autoincremental | No revela cuántos registros hay ni permite recorrer la tabla probando ids. Lo genera Postgres con `gen_random_uuid()`, nativa desde la versión 13, que devuelve un UUID v4 — el mismo que usa la clase de dominio de la PR #45, así que las dos capas coinciden |
 | Restricciones con nombre propio | Nombres deterministas e iguales en todos los entornos, y `downgrade` capaz de borrarlas |
 | `jsonb` para `preferences` | Lo que varía entre usuarios y no merece columna propia. Se consulta e indexa dentro, y Postgres valida que el JSON esté bien formado |
 
@@ -243,8 +249,16 @@ Nada de esto está implementado. Son decisiones abiertas, no instrucciones.
   viejas se compactan en un resumen en vez de guardarse enteras, y si el histórico se particiona por
   fecha. Decidirlo ahora es barato; después es una migración de datos sobre la tabla más grande.
 - **Backups.** No hay ninguno automatizado. Hoy la copia se hace a mano antes de tocar algo delicado
-  (procedimiento en [migrations/README.md](../migrations/README.md)). En cuanto haya un entorno
+  (procedimiento en [migrations/Guide.md](../migrations/Guide.md)). En cuanto haya un entorno
   desplegado hacen falta `pg_dump` programado y point-in-time recovery.
+- **Coordinar la identidad con la clase de dominio (PR #45).** Las dos capas usan UUID v4,
+  así que son compatibles, pero quedan dos flecos: el dominio genera el id en Python con
+  `uuid4()` mientras la tabla lo genera con `server_default`, y si la aplicación pasa el id
+  al guardar el default no llega a usarse nunca — hay que decidir quién manda. Además, el
+  dominio llama `user_id` al campo que la tabla llama `id`.
+- **Auditoría con `serial`.** El esquema de auditoría propuesto en el issue usa un entero
+  autoincremental. Para una tabla de log es defendible, pero conviene decidirlo a propósito
+  y no que salga por descuido.
 - **Validar `status`.** Es `String(32)` sin CHECK: hoy entra cualquier cadena, incluido un typo.
 - **Normalizar `email` y `nif`.** El UNIQUE de Postgres distingue mayúsculas, así que `12345678z` y
   `12345678Z` conviven como dos personas. Arreglarlo después exige migración de datos con deduplicación.

@@ -213,7 +213,7 @@ detecta ningún check.
 
 ## Convenciones al escribir código
 
-- **No cambies `NAMING_CONVENTION` de `db.py`.** Está congelada desde la primera migración: tocarla
+- **No cambies `NAMING_CONVENTION` de `storage/base.py`.** Está congelada desde la primera migración: tocarla
   obliga a renombrar restricciones a mano en todos los entornos.
 - Con la plantilla `ck`, **toda `CheckConstraint` debe llevar `name=`**. Si falta, `InvalidRequestError`
   al importar el módulo, no al generar DDL.
@@ -390,7 +390,18 @@ Se evita coordinando: quien vaya a migrar, que parta de `develop` actualizado.
 
 1. Una migración = un cambio lógico.
 2. Migraciones de datos separadas de las de esquema.
-3. Toda operación que borre datos lleva comentario `# DESTRUCTIVE:` explicando qué y por qué.
+3. **Todo `drop` lleva backup y marca.** Copia antes de aplicarla:
+
+   ```powershell
+   docker compose exec db pg_dump -U app -d administracion -Fc -f /tmp/pre-<revision>.dump
+   docker compose cp db:/tmp/pre-<revision>.dump .\pre-<revision>.dump
+   ```
+
+   Y el `upgrade()` lleva comentario `# DESTRUCTIVE:` diciendo **qué se pierde**. No es
+   documentación opcional: [scripts/check_destructive_migrations.py](../scripts/check_destructive_migrations.py)
+   corre en CI y deja la PR en rojo si un `upgrade()` usa `drop_table`, `drop_column` o SQL con
+   DELETE/TRUNCATE/DROP sin esa marca. Los `drop` de `downgrade()` no cuentan: son el inverso normal
+   de un `create_table`.
 4. **Una migración publicada no se edita.** Se corrige con otra encima (roll-forward): editarla después
    de que alguien la haya aplicado deja su base en un estado que ya no corresponde a su id.
 5. `pyproject.toml` y `uv.lock` se commitean juntos, siempre.

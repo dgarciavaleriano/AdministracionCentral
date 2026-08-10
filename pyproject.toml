@@ -22,6 +22,12 @@ dev = [
     "pytest-alembic>=0.12.1",
 ]
 
+# Para el analizador del editor (Pylance/Pyright). No lo lee ni alembic ni pytest:
+# cada uno tiene su forma de saber que el codigo vive en src/, y sin esto el editor
+# marca en rojo todos los `from config...` y `from storage...`.
+[tool.pyright]
+extraPaths = ["src"]
+
 [tool.pytest.ini_options]
 # Evita tener que exportar PYTHONPATH=src en cada comando.
 pythonpath = ["src"]

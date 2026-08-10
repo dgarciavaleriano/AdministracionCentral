@@ -1,6 +1,4 @@
-"""Tabla `users`.
-
-No confundir con `src/models/user.py`, que son los esquemas Pydantic de la API.
+"""Tabla `users`. No confundir con `src/models/user.py`, que son esquemas de la API.
 
 No incluye `sexual_orientation`: categoría especial del art. 9 RGPD, decisión de equipo.
 """
@@ -13,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
-from storage.connectors.db import Base
+from storage.base import Base
 from storage.entities.mixins import Timestamped, UUIDPrimaryKey
 
 
@@ -37,7 +35,7 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     # --- Cuenta ---
     password_hash: Mapped[str] = mapped_column(String(255))  # bcrypt ocupa 60
 
-    # `ondelete` va en ForeignKey, NUNCA en relationship(): relationship no emite DDL.
+    # `ondelete` va en ForeignKey, nunca en relationship(): relationship no emite DDL.
     # RESTRICT y no CASCADE: la supresión es un proceso de anonimización controlado.
     plan_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("plans.id", ondelete="RESTRICT"), index=True
@@ -50,11 +48,9 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     )
     anonymized_at: Mapped[datetime.datetime | None] = mapped_column()
 
-    # --- Datos semiestructurados ---
-    # MutableDict: sin él, `user.preferences["x"] = 1` + commit() no emite UPDATE y el
-    # cambio se pierde sin error. Solo rastrea el primer nivel.
-    # none_as_null: sin él, asignar None guarda el literal JSON `null`, que pasa el
-    # NOT NULL y se relee como None en vez de dict.
+    # Sin MutableDict, `user.preferences["x"] = 1` + commit() no emite UPDATE y el
+    # cambio se pierde sin error. Sin none_as_null, asignar None guarda el literal
+    # JSON `null`, que pasa el NOT NULL y se relee como None en vez de dict.
     preferences: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSONB(none_as_null=True)),
         server_default=text("'{}'::jsonb"),

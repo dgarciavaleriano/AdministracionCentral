@@ -14,4 +14,4 @@ uv run python src/main.py
 ## Documentación
 
 - [Modelo de datos](docs/modelo-de-datos.md) — esquema, decisiones y cómo funciona la capa de persistencia.
-- [Migraciones](migrations/README.md) — cómo trabajar con Alembic: flujo, comandos y cómo escribir una migración.
+- [Migraciones](migrations/Guide.md) — cómo trabajar con Alembic: flujo, comandos y cómo escribir una migración.
