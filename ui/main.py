@@ -5,6 +5,7 @@ Administración Central (AC) - Punto de entrada principal
 
 from nicegui import ui
 from utils.constants import APP_TITLE
+from config.settings import NICEGUI_STORAGE_SECRET
 
 @ui.page('/')
 def landing():
@@ -29,6 +30,6 @@ if __name__ in {'__main__', '__mp_main__'}:
         title=APP_TITLE,
         favicon='🏛️',
         language='es',
-        storage_secret='ac-secret-key-2024',
+        storage_secret=NICEGUI_STORAGE_SECRET,
         port=8000,
     )
