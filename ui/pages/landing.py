@@ -4,13 +4,14 @@ from nicegui import ui, run
 from utils.constants import APP_TITLE, APP_VERSION, APP_DESCRIPTION
 from utils.themes import get_theme_css, create_theme_toggle, init_dark_mode
 from services.api.endpoints.users import users_api
+import logging
 
 async def probar_api():
     try:
         result = await run.io_bound(users_api.hello_world)
         ui.notify(f"API responde: {result}", type="positive")
     except Exception:
-        __import__('logging').getLogger(__name__).exception('Error llamando API')
+        logging.getLogger(__name__).exception('Error llamando API')
         ui.notify('No se pudo contactar con el API en este momento.', type='negative')
 
 def create_landing_page():
@@ -26,10 +27,6 @@ def create_landing_page():
                 ui.label(APP_TITLE).classes('text-2xl font-bold white-text')
             
             with ui.row().classes('gap-4 items-center'):
-                ui.chip(
-                    'Modo oscuro' if dark_mode.value else 'Modo claro',
-                    icon='dark_mode' if dark_mode.value else 'light_mode',
-                ).classes('badge-glass')
                 create_theme_toggle(dark_mode)
                 ui.button('Iniciar Sesión', icon='login').props('outlined').classes('white-text').on('click', lambda: ui.navigate.to('/login'))
     

@@ -215,12 +215,17 @@ def toggle_theme(dark_mode):
         }})();
     ''')
 
+@ui.refreshable
 def create_theme_toggle(dark_mode):
     """Crea un botón de toggle de tema"""
+    def handle_click():
+        toggle_theme(dark_mode)
+        create_theme_toggle.refresh()
+
     with ui.element('div').classes('theme-toggle') as theme_btn:
         icon_name = 'dark_mode' if not dark_mode.value else 'light_mode'
         ui.icon(icon_name).classes('text-lg white-text')
         next_mode = 'modo claro' if dark_mode.value else 'modo oscuro'
         theme_btn.tooltip(f'Cambiar a {next_mode}')
-        theme_btn.on('click', lambda: toggle_theme(dark_mode))
+        theme_btn.on('click', handle_click)
     return theme_btn
