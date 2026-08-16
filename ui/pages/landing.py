@@ -3,7 +3,7 @@
 from nicegui import ui, run
 from utils.constants import APP_TITLE, APP_VERSION, APP_DESCRIPTION
 from utils.themes import get_theme_css, create_theme_toggle, init_dark_mode
-from services.api.endpoints.users_api import users_api
+from services.api.endpoints.users import users_api
 
 async def probar_api():
     try:
