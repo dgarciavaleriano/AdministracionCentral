@@ -5,7 +5,7 @@ Administración Central (AC) - Punto de entrada principal
 
 from nicegui import ui
 from utils.constants import APP_TITLE
-from config.settings import NICEGUI_STORAGE_SECRET
+import os
 
 @ui.page('/')
 def landing():
@@ -26,6 +26,8 @@ def dashboard():
     create_dashboard_page()
 
 if __name__ in {'__main__', '__mp_main__'}:
+    API_BASE_URL = os.getenv("API_BASE_URL")
+    NICEGUI_STORAGE_SECRET = os.getenv('NICEGUI_STORAGE_SECRET')
     ui.run(
         title=APP_TITLE,
         favicon='🏛️',
