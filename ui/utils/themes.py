@@ -34,12 +34,11 @@ def get_theme_colors(dark: bool = False) -> dict:
     """Obtiene los colores del tema actual"""
     return DARK_THEME if dark else LIGHT_THEME
 
-def get_theme_css(dark: bool = False) -> str:
-    """Genera CSS dinámico según el tema"""
+def get_theme_css_rules(dark: bool = False) -> str:
+    """Genera las reglas CSS del tema (sin etiquetas <style>)"""
     theme = get_theme_colors(dark)
-    
+
     return f'''
-        <style>
             body {{ 
                 background-color: {theme['bg']} !important;
                 color: {theme['text']} !important;
@@ -165,7 +164,13 @@ def get_theme_css(dark: bool = False) -> str:
                 background: {theme['border']};
                 border-radius: 3px;
             }}
-        </style>
+    '''
+
+def get_theme_css(dark: bool = False) -> str:
+    """Genera CSS dinámico según el tema"""
+    return f'''
+        <style>
+{get_theme_css_rules(dark)}        </style>
     '''
 
 def init_dark_mode():
@@ -186,35 +191,28 @@ def toggle_theme(dark_mode):
         dark_mode.disable()
     else:
         dark_mode.enable()
-    
+
     # Guardar preferencia
     app.storage.user['dark_mode'] = dark_mode.value
-    
+
     # Notificar
     ui.notify(
         '🌙 Modo oscuro activado' if dark_mode.value else '☀️ Modo claro activado',
         position='top-right',
         timeout=2000
     )
-    
-    # SOLUCIÓN: Actualizar CSS sin recargar completamente
-    ui.run_javascript('''
-        // Guardar preferencia en localStorage
-        localStorage.setItem('darkMode', ''' + str(dark_mode.value).lower() + ''');
-        
-        // Actualizar clases del body
-        if (''' + str(dark_mode.value).lower() + ''') {
-            document.body.classList.add('dark');
-            document.body.classList.remove('light');
-        } else {
-            document.body.classList.add('light');
-            document.body.classList.remove('dark');
-        }
-        
-        // Recargar para aplicar todos los estilos
-        setTimeout(() => {
-            location.reload();
-        }, 100);
+
+    # Actualizar CSS dinámicamente sin recargar la página
+    css_rules = get_theme_css_rules(dark_mode.value)
+    ui.run_javascript(f'''
+        (function() {{
+            var existing = document.getElementById('nicegui-theme-dynamic');
+            if (existing) {{ existing.remove(); }}
+            var style = document.createElement('style');
+            style.id = 'nicegui-theme-dynamic';
+            style.textContent = {repr(css_rules)};
+            document.head.appendChild(style);
+        }})();
     ''')
 
 def create_theme_toggle(dark_mode):
