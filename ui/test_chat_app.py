@@ -1,32 +1,41 @@
-from collections.abc import Callable
-
 from nicegui import ui
 from nicegui.testing import User
 
 
-async def test_basic_startup_appearance(user: User) -> None:
-    """Test basic appearance of the chat app."""
-    await user.open('http://127.0.0.1:8000/')
-    await user.should_see('simple chat app')
-    await user.should_see('https://robohash.org/')
-    await user.should_see('message')
-    await user.should_see('No messages yet')
+async def test_active_pages_render(user: User) -> None:
+    await user.open('/')
+    await user.should_see('Simplifica tus trámites administrativos')
+
+    await user.open('/login')
+    await user.should_see('Accede a tu cuenta de Administración Central')
+
+    await user.open('/dashboard')
+    await user.should_see('Asistente Virtual AC')
+    await user.should_see('¿En qué trámite puedo ayudarte hoy?')
 
 
-async def test_sending_messages(create_user: Callable[[], User]) -> None:
-    """Test sending messages from two different screens."""
-    user1 = create_user()
-    user2 = create_user()
+async def test_dashboard_returns_a_simulated_response(user: User) -> None:
+    await user.open('/dashboard')
 
-    await user1.open('http://127.0.0.1:8000/')
-    user1.find(ui.input).type('Hello from screen A!').trigger('keydown.enter')
-    await user1.should_see('Hello from screen A!')
-    await user1.should_see('message')
+    user.find(ui.input).type('Necesito ayuda con el IRPF').trigger('keydown.enter')
 
-    await user2.open('http://127.0.0.1:8000/')
-    await user2.should_see('Hello from screen A!')
-    user2.find(ui.input).type('Hello from screen B!').trigger('keydown.enter')
-    await user2.should_see('message')
+    await user.should_see('Necesito ayuda con el IRPF')
+    await user.should_see('Para la declaración del IRPF necesitarás:', retries=15)
 
-    await user1.should_see('Hello from screen A!')
-    await user1.should_see('Hello from screen B!')
+
+async def test_landing_validates_api_connection(user: User, monkeypatch) -> None:
+    from pages import landing
+
+    monkeypatch.setattr(
+        landing.users_api,
+        'hello_world',
+        lambda: 'Hello from administracioncentral!',
+    )
+
+    await user.open('/')
+    user.find('Ver Demo').click()
+
+    await user.should_see(
+        'API responde: Hello from administracioncentral!',
+        retries=15,
+    )
