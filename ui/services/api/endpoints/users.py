@@ -1,4 +1,4 @@
-# ACFrontEnd/services/api/endpoints/users_api.py
+# ui/services/api/endpoints/users.py
 from services.api.client import ApiClient
 from config.settings import API_BASE_URL, API_TIMEOUT
 
