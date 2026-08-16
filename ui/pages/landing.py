@@ -9,8 +9,9 @@ async def probar_api():
     try:
         result = await run.io_bound(users_api.hello_world)
         ui.notify(f"API responde: {result}", type="positive")
-    except Exception as e:
-        ui.notify(f"Error llamando API: {e}", type="negative")
+    except Exception:
+        __import__('logging').getLogger(__name__).exception('Error llamando API')
+        ui.notify('No se pudo contactar con el API en este momento.', type='negative')
 
 def create_landing_page():
     """Crea la landing page"""
