@@ -4,8 +4,11 @@ Administración Central (AC) - Punto de entrada principal
 """
 
 from nicegui import ui
+from dotenv import load_dotenv
 from utils.constants import APP_TITLE
 import os
+
+load_dotenv()
 
 @ui.page('/')
 def landing():
@@ -26,12 +29,10 @@ def dashboard():
     create_dashboard_page()
 
 if __name__ in {'__main__', '__mp_main__'}:
-    API_BASE_URL = os.getenv("API_BASE_URL")
-    NICEGUI_STORAGE_SECRET = os.getenv('NICEGUI_STORAGE_SECRET')
     ui.run(
         title=APP_TITLE,
         favicon='🏛️',
         language='es',
-        storage_secret=NICEGUI_STORAGE_SECRET,
+        storage_secret=os.getenv('NICEGUI_STORAGE_SECRET'),
         port=8000,
     )
