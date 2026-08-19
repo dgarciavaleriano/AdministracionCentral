@@ -1,84 +1,69 @@
 # Cómo trabajar con las migraciones
 
-Manual de uso: arrancar, cambiar el esquema, escribir una migración y salir de los errores frecuentes.
+Todo lo que se teclea en una terminal o se escribe en `migrations/versions/`.
+El porqué de cada pieza está en [docs/modelo-de-datos.md](../docs/modelo-de-datos.md).
+Rutas relativas a la raíz del repositorio.
 
-**Qué es Alembic, cómo funciona por dentro y cómo está organizada la carpeta** está en
-[docs/modelo-de-datos.md](../docs/modelo-de-datos.md). Aquí solo hay comandos y reglas de trabajo.
+> **Las secciones 1 a 7 son todo lo que necesitas para trabajar.** De la 8 en adelante, consulta.
 
-Las rutas de este documento son relativas a la raíz del repositorio.
+| Tengo que… | Ve a |
+|---|---|
+| Crear una tabla | [§4](#4-crear-una-tabla) |
+| Añadir, cambiar o renombrar una columna | [§5](#5-modificar-una-tabla) |
+| Borrar una columna o una tabla | [§6](#6-eliminar-una-columna-o-una-tabla) |
+| Entender el `# DESTRUCTIVE:` que me pide el CI | [§7](#7-cómo-funciona--destructive) |
+| Salir de un error | [§8](#8-desatascarse) |
+| Arrancar el entorno, o cambiar de rama | [§10](#10-arrancar-parar-y-cambiar-de-rama) |
+| Buscar un comando | [§11](#11-tabla-de-comandos) |
 
-## Arrancar y parar
+## 1. Modelo mental
+
+- **Entidad** — clase de `src/storage/entities/`. Describe una tabla, no la crea.
+- **`Base.metadata`** — la lista de tablas que *deberían* existir. Se rellena importando entidades.
+- **Migración** — fichero de `versions/` con el DDL de un cambio y cómo deshacerlo.
+- **Head** — el último eslabón de la cadena. Debe haber **uno**.
+- **Autogenerate** — compara `Base.metadata` con la base real y escribe la diferencia.
+
+**Git versiona ficheros; Alembic versiona tu base.** Revertir el commit que creó una tabla no ejecuta el
+`DROP TABLE` ([§10](#10-arrancar-parar-y-cambiar-de-rama)). Y **el `downgrade` devuelve la estructura,
+no los datos**: el inverso de `drop_column` es `add_column`, y te da la columna vacía.
+
+## 2. Reglas que no se negocian
+
+1. **Una migración publicada no se edita.** Se corrige con otra encima.
+2. **El fichero autogenerado se revisa siempre** ([§13](#13-dónde-el-autogenerate-se-equivoca)). La
+   pregunta al leerlo es *¿se pierde algún dato?*
+3. **Todo borrado lleva copia antes y marca dentro** ([§6](#6-eliminar-una-columna-o-una-tabla)).
+4. **Un solo head.** `alembic heads` antes de abrir la PR: ni git ni `alembic check` ven la bifurcación.
+5. **Entidad, `__init__.py` y migración van en el mismo commit.** Entidad sin migración deja el CI en
+   rojo; migración sin entidad la resucita el próximo autogenerate.
+6. **Una migración = un cambio lógico.** Las de datos, separadas de las de esquema.
+7. **`pyproject.toml` y `uv.lock` se commitean juntos.** El CI corre `uv sync --locked`.
+8. **Nada destructivo contra una base que no sea la tuya.** Comprueba el destino con `alembic current`.
+9. **Los ficheros van en LF**, o la PR aparece entera reescrita. `git diff --numstat`.
+
+## 3. Antes de tocar nada
 
 ```powershell
-docker compose up -d --wait   # Postgres; --wait espera a que acepte conexiones
-uv sync                       # dependencias
-uv run alembic upgrade head   # crea o actualiza las tablas
-uv run alembic current        # debe imprimir la revisión, no vacío
-```
-
-La API, en otra terminal: `uv run python src/main.py` (host y puerto salen de `settings`).
-
-No hace falta tocar el `.env`: `settings.database_url` apunta por defecto al compose local.
-Para otra base, exporta `DATABASE_URL` (las variables de entorno ganan al `.env`).
-
-Para parar, **la diferencia entre los cuatro comandos es si pierdes los datos o no**:
-
-| Comando | Qué hace | Los datos de `db` |
-|---|---|---|
-| `Ctrl+C` en la terminal de la API | para la API, la base sigue | intactos |
-| `docker compose stop` | para los contenedores | **se conservan** |
-| `docker compose start` | los vuelve a arrancar | — |
-| `docker compose down` | para y borra los contenedores | **se conservan**, viven en el volumen |
-| `docker compose down -v` | además borra los volúmenes | **se destruyen** |
-
-`down -v` es el único que borra datos, y no avisa. Después hay que volver a `up` y a
-`alembic upgrade head`, porque la base nace vacía: `initdb` solo aplica las variables `POSTGRES_*`
-sobre un datadir vacío, así que también es la forma de arreglar una base creada con la configuración
-equivocada.
-
-`db_test` es la excepción: vive en tmpfs, así que su contenido desaparece con cualquier parada. Es
-deliberado, no hay nada que conservar ahí.
-
-## Flujo por cada cambio de esquema
-
-```powershell
-# 1. editar la entidad en src/storage/entities/
-uv run alembic check                                          # ¿detecta el cambio?
-uv run alembic revision --autogenerate -m "descripción corta"
-# 2. REVISAR a mano el fichero generado
+docker compose up -d --wait      # --wait espera a que Postgres acepte conexiones
+uv sync
 uv run alembic upgrade head
-uv run alembic downgrade -1 ; uv run alembic upgrade head     # el downgrade debe funcionar
-uv run alembic check                                          # debe salir limpio
+uv run alembic current           # debe terminar en (head)
+uv run alembic heads             # debe salir una sola línea
 ```
 
-Un `alembic check` que responde `FAILED: New upgrade operations detected` en el primer paso es la
-respuesta correcta: significa que ve tu cambio. Si dice `No new upgrade operations detected`, el cambio
-no ha llegado (fichero sin guardar, o entidad nueva sin su línea en `entities/__init__.py`).
+**Si `current` no termina en `(head)`, para**: el autogenerate compararía tu modelo contra una base
+atrasada y escribiría diferencias que no existen.
 
-El paso 2 no es opcional: el autogenerate se equivoca en los casos de más abajo. La pregunta a hacerse
-al leerlo es *¿se pierde algún dato con esto?*
+Para mirar la base a mano, `docker compose exec db psql -U app -d administracion -P pager=off`
+(`\dt`, `\d users`, `\q`); sin el `pager=off`, `psql` se queda en `--More--` y parece colgado.
 
-La migración se commitea **en el mismo commit** que la entidad. Una entidad sin su migración deja el CI
-en rojo (`alembic check` corre allí); una migración sin su entidad la resucita el próximo autogenerate.
+## 4. Crear una tabla
 
-Antes de aplicarla contra algo que importe, ver **Probar una migración sin riesgo** más abajo.
-
-### Crear una tabla nueva
-
-Igual que el flujo de arriba, más un paso que es el fallo más frecuente del proyecto: **registrar la
-entidad**. Sin él, el autogenerate no la ve y genera una migración vacía sin avisar.
+**1. La entidad**, un fichero por tabla:
 
 ```python
 # src/storage/entities/document.py
-import uuid
-
-from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from storage.connectors.db import Base
-from storage.entities.mixins import Timestamped, UUIDPrimaryKey
-
-
 class Document(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "documents"
 
@@ -88,185 +73,238 @@ class Document(UUIDPrimaryKey, Timestamped, Base):
     storage_key: Mapped[str] = mapped_column(String(512))
 ```
 
-```python
-# src/storage/entities/__init__.py   <-- SIN ESTO LA MIGRACIÓN SALE VACÍA
-from storage.entities.document import Document
+Los mixins ya ponen `id`, `created_at` y `updated_at`; `Mapped[str]` es NOT NULL y `Mapped[str | None]`
+admite NULL. Resto de reglas en [modelo-de-datos §1](../docs/modelo-de-datos.md#1-las-reglas-de-modelado).
 
-__all__ = ["Document", "Plan", "User"]
+**2. Registrarla** en `entities/__init__.py` (import y `__all__`), o Alembic no la ve. Si lo olvidas y
+la migración quedaría vacía, `env.py` aborta con `SystemExit: Nada que migrar…`; **pero si lleva otro
+cambio, no aborta y tu tabla se omite en silencio.**
+
+**3. El ciclo:**
+
+```powershell
+uv run alembic check                                          # ¿ve el cambio?
+uv run alembic revision --autogenerate -m "crear documents"
+# --- revisar a mano el fichero generado ---
+uv run alembic upgrade head
+uv run alembic downgrade -1 ; uv run alembic upgrade head     # seguro: esta migración solo crea
+uv run alembic check                                          # debe salir limpio
 ```
 
-Los mixins de [mixins.py](../src/storage/entities/mixins.py) ponen `id` UUID, `created_at` y
-`updated_at`, así que no se declaran a mano. `UUIDPrimaryKey` + `CreatedAt` si la tabla no necesita
-`updated_at`.
+`FAILED: New upgrade operations detected` en el primer `check` es lo **correcto**: ve tu cambio.
+`No new upgrade operations detected` significa que no ha llegado (fichero sin guardar, o falta el paso 2).
 
-Recordatorios al declarar columnas:
+## 5. Modificar una tabla
 
-- `Mapped[str]` es NOT NULL; `Mapped[str | None]` admite NULL. No se escribe `nullable=`.
-- `ondelete` va en `ForeignKey`, nunca en `relationship()`: `relationship` no emite DDL.
-- Una FK a `users` indexada: Postgres **no** crea índice automático en el lado que apunta, y sin él
-  cada borrado o comprobación de integridad hace un recorrido completo de la tabla.
-
-Después, el flujo normal: `alembic check` → `revision --autogenerate` → revisar → `upgrade head`.
-
-## Comandos
-
-| Comando | Para qué |
-|---|---|
-| `alembic current` | revisión aplicada en ESTA base. Lo primero que mirar siempre |
-| `alembic history` | cadena completa (`--verbose` para rutas y fechas) |
-| `alembic show <rev>` | detalle de una revisión |
-| `alembic heads` | ramas abiertas; debe salir **una** |
-| `alembic upgrade head` / `+1` | aplicar todo / un paso |
-| `alembic downgrade -1` / `base` | deshacer un paso / todo |
-| `alembic check` | ¿modelo y base divergen? exit 0 si coinciden, ≠0 si no |
-| `alembic revision -m "..."` | migración vacía para escribirla a mano |
-| `alembic revision --autogenerate -m "..."` | migración con las diferencias detectadas |
-| `alembic stamp <rev>` | mover el marcador **sin ejecutar DDL** |
-| `alembic merge -m "..." <rev1> <rev2>` | unir dos heads |
-
-`stamp` merece cuidado: no toca el esquema, solo reescribe `alembic_version`. Sirve para decirle a
-Alembic "esta base ya está como tú crees". Usado por error, deja el marcador mintiendo.
-
-## Cómo se escribe una migración
+| Caso | ¿Acierta el autogenerate? | Qué haces |
+|---|---|---|
+| Añadir columna nullable, o NOT NULL a tabla vacía | Sí | El ciclo de [§4](#4-crear-una-tabla) |
+| Añadir NOT NULL a tabla **con filas** | No, falla al aplicar | Tres pasos, abajo |
+| Alargar un tipo (`String(16)`→`String(20)`, `int`→`bigint`) | Sí, Postgres convierte solo | Igual |
+| Cambiar a un tipo distinto (`varchar`→`int`) | Le falta la conversión | `postgresql_using`, [§13](#13-dónde-el-autogenerate-se-equivoca) |
+| **Renombrar** una columna | **No: `drop` + `add`, pérdida total** | Reescribir, abajo |
+| Índice, unique, FK | Sí | Igual |
+| Trigger, vista, función | **Invisible** | `op.execute()`, [§13](#13-dónde-el-autogenerate-se-equivoca) |
 
 ```python
-revision: str = "a1b2c3d4e5f6"          # mi id
-down_revision: ... = "cc9184fc36d1"     # de quién vengo: esto forma la cadena
+# NOT NULL sobre tabla con filas: tres pasos en la misma migración
+op.add_column("users", sa.Column("pais", sa.String(2), nullable=True))
+op.execute("UPDATE users SET pais = 'ES' WHERE pais IS NULL")
+op.alter_column("users", "pais", nullable=False)
 
-def upgrade() -> None:   ...   # llevar la base hacia adelante
-def downgrade() -> None: ...   # dejarla exactamente como estaba
-```
-
-Dentro se usa `op`, la API de operaciones de esquema:
-
-| Operación | Llamada |
-|---|---|
-| Crear / borrar tabla | `op.create_table("t", sa.Column(...), ...)` · `op.drop_table("t")` |
-| Añadir / quitar columna | `op.add_column("t", sa.Column("c", sa.String(50)))` · `op.drop_column("t", "c")` |
-| Cambiar columna | `op.alter_column("t", "c", type_=..., nullable=..., new_column_name=...)` |
-| Índice | `op.create_index(op.f("ix_t_c"), "t", ["c"])` · `op.drop_index(op.f("ix_t_c"), table_name="t")` |
-| UNIQUE / CHECK / FK | `op.create_unique_constraint` · `op.create_check_constraint` · `op.create_foreign_key` |
-| Renombrar tabla | `op.rename_table("vieja", "nueva")` |
-| Insertar datos | `op.bulk_insert(tabla, [{...}])` |
-| SQL a pelo | `op.execute("UPDATE users SET ...")` |
-
-- **`op.f("...")`** marca un nombre como definitivo para que no se le reaplique la plantilla de nombres.
-  Lo pone el autogenerate; respétalo.
-- **`sa.text("...")`** es obligatorio en los `server_default`. Sin él, `server_default="now()"` guarda
-  la cadena literal `now()` en vez de llamar a la función.
-- **El orden importa.** Postgres no deja borrar `plans` mientras `users` la referencie: el `downgrade`
-  es el `upgrade` leído del revés.
-
-### Donde el autogenerate se equivoca
-
-**Renombrar columna.** Genera `drop_column` + `add_column`: pérdida total de datos. Reescribir:
-
-```python
+# Renombrar: sustituye entero el drop+add que genera el autogenerate
 def upgrade():   op.alter_column("users", "phone", new_column_name="telefono")
 def downgrade(): op.alter_column("users", "telefono", new_column_name="phone")
 ```
 
-**Cambiar tipo.** Postgres necesita la conversión explícita:
+## 6. Eliminar una columna o una tabla
+
+El único flujo que destruye datos. El orden es a propósito.
+
+**1. Copia, antes de nada.** El `cp` no es un rodeo: en PowerShell, `> fichero.dump` reescribe la salida
+como texto y corrompe un dump binario.
+
+```powershell
+docker compose exec db pg_dump -U app -d administracion -Fc -f /tmp/pre-borrado.dump
+docker compose cp db:/tmp/pre-borrado.dump .\pre-borrado.dump
+```
+
+**2.** Quita la columna o la clase de la entidad, y de `entities/__init__.py` si borras la tabla.
+
+**3.** `uv run alembic revision --autogenerate -m "borrar ..."`.
+
+**4. Lee el fichero.** Un `drop_table` arrastra sus índices, sus restricciones y las filas de otras
+tablas que dependan de ella.
+
+**5. Escribe la marca dentro de `upgrade()`**, diciendo qué se pierde:
 
 ```python
-op.alter_column("users", "nif", type_=sa.String(20), postgresql_using="nif::varchar(20)")
+def upgrade() -> None:
+    # DESTRUCTIVE: elimina users.phone y todos los teléfonos guardados.
+    # Copia previa en pre-borrado.dump.
+    op.drop_column("users", "phone")
+```
+
+**6.** `uv run alembic upgrade head`.
+
+> **Aquí no hagas el `downgrade -1 ; upgrade head` de [§4](#4-crear-una-tabla)**: aplicaría el borrado
+> dos veces. Para probar la ida y vuelta, contra `db_test` ([§15](#15-probar-una-migración-sin-riesgo)).
+
+## 7. Cómo funciona `# DESTRUCTIVE:`
+
+[El vigilante](../scripts/check_destructive_migrations.py) corre en el CI antes de que ninguna migración
+toque una base. En local se lanza a mano, no hay hook:
+`uv run python scripts/check_destructive_migrations.py`.
+
+**La marca es literal**: `# DESTRUCTIVE:`, con un espacio y dos puntos. `#DESTRUCTIVE:`,
+`# destructive:` y `# DESTRUCTIVE` no valen y dejan la PR en rojo igual.
+
+**Detecta** `op.drop_table`, `op.drop_column` y `op.execute("...")` con `DELETE`, `TRUNCATE` o `DROP` en
+el SQL literal. Solo en `upgrade()`: los `drop` de `downgrade()` se ignoran a propósito, son el inverso
+normal de un `create_table`.
+
+**No detecta.** Todo esto destruye datos y hoy pasa en verde:
+
+| Se cuela | Por qué |
+|---|---|
+| `op.execute(sa.text("DELETE ..."))`, o el SQL en una variable | Deja de ser un literal pegado a `execute` |
+| `f"DROP TABLE {tabla}"` | Un f-string no es una constante |
+| El `drop` en una función auxiliar del fichero | Solo se recorre el cuerpo de `upgrade()` |
+| `UPDATE users SET nif = NULL` | El patrón no cubre `UPDATE` |
+| `alter_column` a un tipo más corto | No está entre las operaciones vigiladas |
+
+**La marca se busca en el fichero entero**: si la cadena aparece en cualquier punto —docstring, string,
+`downgrade()`— esa migración queda exenta **para siempre**, incluidas las operaciones que alguien añada
+después. Hoy [cc9184fc36d1](versions/cc9184fc36d1_create_plans_and_users.py) la tiene en su
+`downgrade()` y ya está fuera del chequeo.
+
+Escríbela siempre **dentro de `upgrade()` y pegada a la operación**: es lo que se espera leer en la
+revisión, aunque el script se conforme con menos. Sus falsos positivos, en [§9](#9-anatomía-del-vigilante).
+
+---
+
+> **Fin de lo imprescindible.** De aquí abajo, consulta.
+
+## 8. Desatascarse
+
+| Síntoma | Causa / solución |
+|---|---|
+| Colgado ~30 s sin error | Alguien usó `localhost`. Debe ser `127.0.0.1`: `localhost` resuelve primero a `::1` y docker publica solo en IPv4 |
+| `connection refused` | Falta `--wait`. `-d` a secas retorna antes de que Postgres acepte conexiones |
+| `SystemExit: Nada que migrar` | Falta la línea en `entities/__init__.py`, o el fichero sin guardar |
+| Migración vacía **sin** ese error | Llevaba otro cambio, la salvaguarda no saltó. Revisa el registro |
+| `Can't locate revision` | El marcador apunta a un fichero borrado. `alembic stamp head --purge` (`stamp head` a secas falla igual: resuelve la revisión actual antes de escribir). Solo si el esquema ya coincide |
+| `database "..." does not exist` | `initdb` solo aplica `POSTGRES_*` con el datadir vacío. `down -v` y volver a migrar |
+| Sobran tablas de otra rama | Cambiaste de rama sin deshacer ([§10](#10-arrancar-parar-y-cambiar-de-rama)). En desarrollo, `down -v` es más rápido y seguro que borrarlas a mano |
+| Dos heads | [§18](#18-dos-heads) |
+| El vigilante salta y no borras nada | Falso positivo ([§9](#9-anatomía-del-vigilante)). Pon la marca explicando por qué no se pierde nada |
+| `ValidationError` en `Settings` | Un valor del `.env` no casa con su tipo. Las no declaradas no dan error: `extra="ignore"` |
+| `uv run uvicorn` bloqueado | Smart App Control. Usar `uv run python -m uvicorn` |
+| Un cambio JSONB no se guarda, sin error | Falta `MutableDict` en esa columna |
+| Algo tarda ~130 s en fallar | Falta `connect_timeout` en ese `create_engine`: manda el timeout TCP del sistema |
+
+## 9. Anatomía del vigilante
+
+Análisis estático puro, sin conectar a ninguna base: el interruptor de fichero de
+[§7](#7-cómo-funciona--destructive) es un `in` sobre el texto, antes de parsear. Evita despistes, no
+sabotajes; leer la migración sigue siendo del que aprueba la PR. Endurecerlo está pendiente.
+
+También da **falsos positivos**: `ADD CONSTRAINT ... ON DELETE CASCADE`, `DROP NOT NULL`, `DROP INDEX` o
+un `COMMENT ON` que mencione DELETE saltan sin destruir nada. Si te toca uno, la marca es la salida
+correcta: explica en ella por qué no se pierde nada.
+
+## 10. Arrancar, parar y cambiar de rama
+
+```powershell
+docker compose up -d --wait
+uv run python src/main.py        # la API, en otra terminal
+```
+
+`settings.database_url` apunta por defecto al compose local. Para otra base, exporta `DATABASE_URL`.
+De las formas de parar, **solo `docker compose down -v` borra datos**, y no avisa; es también la forma
+de arreglar una base creada con la configuración equivocada, porque `initdb` solo aplica las variables
+`POSTGRES_*` sobre un datadir vacío. `db_test` vive en tmpfs y se vacía con cualquier parada.
+
+**Al cambiar de rama, el orden importa**, porque tu base no se mueve con git. Si cambias primero, las
+migraciones desaparecen del disco pero sus tablas siguen ahí, y `downgrade` ya no puede deshacerlas:
+
+```powershell
+uv run alembic downgrade <revision-comun>   # PRIMERO deshacer
+git switch otra-rama                        # DESPUÉS cambiar
+uv run alembic upgrade head
+```
+
+## 11. Tabla de comandos
+
+| Comando | Para qué | Riesgo |
+|---|---|---|
+| `alembic current` / `heads` / `check` | Dónde está la base · ramas abiertas · ¿modelo y base divergen? | — |
+| `alembic history` / `show <rev>` | La cadena completa · el detalle de una revisión | — |
+| `alembic upgrade head` / `+1` | Aplicar todo / un paso | Aplica DDL |
+| `alembic downgrade -1` / `base` | Deshacer un paso / todo | **Borra datos** |
+| `alembic revision [--autogenerate] -m "..."` | Migración vacía / con las diferencias detectadas | — |
+| `alembic stamp <rev>` | Mover el marcador **sin ejecutar DDL** | **Lo deja mintiendo si te equivocas** |
+| `alembic merge -m "..." <r1> <r2>` | Unir dos heads | — |
+| `docker compose down -v` | Parar y borrar los volúmenes | **Destruye la base local** |
+
+## 12. Anatomía de una migración
+
+`revision` es su id y `down_revision` de quién viene: esa referencia forma la cadena, y **el orden lo da
+ella**, no el nombre ni la fecha del fichero. Dentro se usa `op`, que emite el DDL:
+`create_table`/`drop_table`, `add_column`/`drop_column`, `alter_column`, `create_index`/`drop_index`,
+`create_unique_constraint`/`create_check_constraint`/`create_foreign_key`, `rename_table`,
+`bulk_insert` y `execute` para SQL a pelo. Las firmas, en la documentación de Alembic.
+
+- **`op.f("...")`** marca un nombre como definitivo para que no se le reaplique la plantilla. Lo pone el
+  autogenerate; respétalo.
+- **`sa.text("...")`** es obligatorio en los `server_default`, o se guarda la cadena literal.
+- **El orden importa**: Postgres no deja borrar `plans` mientras `users` la referencie, así que el
+  `downgrade` es el `upgrade` leído del revés.
+- **Sin formateo automático**: los `post_write_hooks` están comentados, así que los
+  `### commands auto generated by Alembic ###` se quitan a mano.
+
+## 13. Dónde el autogenerate se equivoca
+
+**Cambio de tipo con conversión no automática** (`varchar`→`int` con valores sucios). Se limpia antes:
+
+```python
+op.execute("UPDATE users SET edad = NULL WHERE edad !~ '^[0-9]+$'")
+op.alter_column("users", "edad", type_=sa.Integer, postgresql_using="edad::integer")
 ```
 
 **No hace falta tabla de respaldo.** El patrón "crear tabla nueva, copiar, borrar la vieja, renombrar"
-es de **SQLite**, que no sabe modificar una columna. Postgres sí: `ALTER TABLE ... ALTER COLUMN ... TYPE`
-convierte los datos en el sitio, y si algún valor no se puede convertir la migración falla entera y no
-se aplica nada. Copiar ese patrón aquí es trabajo de más y riesgo de más.
+es de **SQLite**, que no sabe modificar una columna. Postgres convierte en el sitio, y si algún valor no
+se puede convertir la migración falla entera y no se aplica nada.
 
-Solo hay dos casos en los que sí hacen falta varios pasos:
+**`CheckConstraint`** lleva siempre `name=`; al borrarla, el `drop_constraint` necesita `type_="check"`.
+**Los índices parciales** no comparan `postgresql_where` de forma fiable, así que `alembic check` puede
+dar OK aunque diverja. **Triggers, funciones y vistas** son invisibles: van con `op.execute()`.
 
-- **La conversión no es automática** (p. ej. `varchar` → `int` con valores sucios). Se limpia antes:
+**Migraciones de datos.** Solo mira estructura. Van aparte (regla 6 de
+[§2](#2-reglas-que-no-se-negocian)): `alembic revision -m "..."` sin `--autogenerate` da el fichero
+vacío, y dentro van `op.bulk_insert` o `op.execute`.
 
-  ```python
-  op.execute("UPDATE users SET edad = NULL WHERE edad !~ '^[0-9]+$'")
-  op.alter_column("users", "edad", type_=sa.Integer, postgresql_using="edad::integer")
-  ```
+## 14. expand/contract
 
-- **Quieres conservar los valores originales.** Entonces es expand/contract, y la columna vieja es tu
-  copia de seguridad hasta que decidas borrarla en otra migración:
-
-  ```python
-  op.add_column("users", sa.Column("nif_nuevo", sa.String(20)))
-  op.execute("UPDATE users SET nif_nuevo = upper(trim(nif))")
-  # la columna `nif` sigue ahí: si algo sale mal, los datos originales no se han tocado
-  ```
-
-**NOT NULL sobre tabla con filas.** Falla. Tres pasos:
+El único patrón que hace reversible un cambio con pérdida: la columna vieja es la copia de seguridad
+hasta que decidas borrarla, en otra migración. En producción será obligatorio para cualquier cambio
+incompatible.
 
 ```python
-op.add_column("users", sa.Column("pais", sa.String(2), nullable=True))
-op.execute("UPDATE users SET pais = 'ES' WHERE pais IS NULL")
-op.alter_column("users", "pais", nullable=False)
+op.add_column("users", sa.Column("nif_nuevo", sa.String(20)))     # migración 1
+op.execute("UPDATE users SET nif_nuevo = upper(trim(nif))")
+# DESTRUCTIVE: elimina users.nif, ya migrado a nif_nuevo.         # migración 2, días después
+op.drop_column("users", "nif")
 ```
 
-**Índices parciales.** No compara `postgresql_where` de forma fiable: `alembic check` puede dar OK
-aunque diverja. Revisar a mano.
+## 15. Probar una migración sin riesgo
 
-**Triggers, funciones y vistas.** Invisibles para el autogenerate. Van con `op.execute()` y no los
-detecta ningún check.
+**1. Ver el SQL sin ejecutarlo:** `uv run alembic upgrade <current>:head --sql`. El rango no es opcional
+en la práctica: sin él arranca desde `base` y vuelca todo el historial. Solo vale con `--sql`.
 
-**Migraciones de datos.** Solo mira estructura. Rellenar o mover datos lo escribes tú.
-
-## Convenciones al escribir código
-
-- **No cambies `NAMING_CONVENTION` de `storage/base.py`.** Está congelada desde la primera migración: tocarla
-  obliga a renombrar restricciones a mano en todos los entornos.
-- Con la plantilla `ck`, **toda `CheckConstraint` debe llevar `name=`**. Si falta, `InvalidRequestError`
-  al importar el módulo, no al generar DDL.
-- `Mapped[datetime]` ya es `TIMESTAMPTZ`. No lo declares a mano.
-- `server_default` siempre con `text("...")`.
-- **Prohibido `ENUM` nativo de Postgres.** `op.create_table` emite el `CREATE TYPE` pero `op.drop_table`
-  no emite el `DROP TYPE`: el ciclo `downgrade base` + `upgrade head` aborta con `DuplicateObject`.
-  Usar `String(n)` + `CheckConstraint`.
-- **Entidad nueva → una línea en `entities/__init__.py`.** Si falta, la migración sale vacía sin aviso.
-- **Toda columna JSONB va envuelta en `MutableDict.as_mutable(JSONB(none_as_null=True))`.** Sin
-  `MutableDict`, `obj.campo["x"] = 1` + `commit()` **no emite UPDATE y el cambio se pierde sin error**
-  (SQLAlchemy detecta cambios por identidad del objeto, no por contenido). Solo rastrea el primer
-  nivel: para dicts anidados, reasignar el atributo entero. Sin `none_as_null`, asignar `None` guarda
-  el literal JSON `null`, que satisface el `NOT NULL` y se relee como `None` en vez de dict. Ninguna
-  de las dos cosas cambia el DDL, así que no requieren migración.
-- **`connect_args={"connect_timeout": N}` en todo `create_engine`.** `pool_timeout` solo limita la
-  espera por un hueco libre del pool, no el connect TCP. Y sin `connect_timeout` no hay límite propio:
-  manda el sistema operativo, que tarda **~130 s** en agotar los reintentos TCP cuando los paquetes se
-  pierden (contenedor caído, IP equivocada). Un puerto que rechaza activamente sí falla al instante.
-
-## Tests
-
-```powershell
-docker compose up -d --wait db_test
-uv run pytest --test-alembic
-```
-
-`pytest-alembic` aporta cuatro tests que no hay que escribir: que hay un solo head, que la cadena sube
-desde cero, que el modelo coincide con el DDL resultante y que **todos los `downgrade` funcionan**.
-
-Corren contra `db_test` (5433), **nunca** contra la base de desarrollo: el test de ida y vuelta hace
-`downgrade` hasta base, o sea DROP de todas las tablas. Dos salvaguardas lo impiden: el fixture
-`alembic_engine` de `tests/conftest.py` aborta si `TEST_DATABASE_URL` coincide con `DATABASE_URL`, y
-`env.py` usa la conexión que le inyecta pytest en vez de abrir la suya.
-
-`uv run pytest` **sin** `--test-alembic` recolecta solo 2 tests y da verde sin ejecutar ninguno de los
-4 de migraciones. El CI sí pasa el flag.
-
-## Probar una migración sin riesgo
-
-Nunca hace falta estrenar una migración contra la base buena. Hay tres niveles, de menos a más real.
-
-**1. Ver el SQL sin ejecutarlo.** Modo offline: imprime el DDL y no aplica nada.
-
-```powershell
-uv run alembic current                        # p.ej. cc9184fc36d1
-uv run alembic upgrade cc9184fc36d1:head --sql
-```
-
-El rango `<desde>:<hasta>` no es opcional en la práctica: sin él arranca desde `base` y vuelca todo el
-historial en vez de lo que falta por aplicar. Los rangos solo se aceptan con `--sql`.
-
-**2. Contra la base desechable.** `db_test` vive en tmpfs: se rompe, se para y desaparece.
+**2. Contra `db_test`**, que vive en tmpfs y es desechable. Cierra la terminal al terminar: mientras
+`DATABASE_URL` valga eso, `pytest --test-alembic` se negará a arrancar, que es la salvaguarda del
+`conftest.py` funcionando.
 
 ```powershell
 docker compose up -d --wait db_test
@@ -274,150 +312,68 @@ $env:DATABASE_URL = "postgresql+psycopg://app:app@127.0.0.1:5433/administracion_
 uv run alembic upgrade head
 ```
 
-Cierra esa terminal al terminar. Mientras `DATABASE_URL` valga eso, coincide con `TEST_DATABASE_URL` y
-`pytest --test-alembic` se negará a arrancar (es la salvaguarda del `conftest.py` haciendo su trabajo).
-
-**3. Contra una copia de los datos reales.** Es lo único que detecta los fallos que solo aparecen con
-filas dentro: un `NOT NULL` que no se cumple, una conversión de tipo que revienta con un valor sucio,
-un UNIQUE que ya está duplicado.
+**3. Contra una copia de los datos reales.** Lo único que detecta lo que solo falla con filas dentro: un
+NOT NULL incumplido, una conversión que revienta con un valor sucio, un UNIQUE ya duplicado. Saca la
+copia como en [§16](#16-copia-de-seguridad-y-restauración) y métela **en `db_test`, no en `db`**:
 
 ```powershell
-# copiar la base de trabajo a db_test
-docker compose exec db pg_dump -U app -d administracion -Fc -f /tmp/copia.dump
-docker compose cp db:/tmp/copia.dump .\copia.dump
-docker compose cp .\copia.dump db_test:/tmp/copia.dump
+docker compose cp .\backup.dump db_test:/tmp/copia.dump
 docker compose exec db_test pg_restore -U app -d administracion_test --clean --if-exists /tmp/copia.dump
-
-# migrar SOLO la copia
-$env:DATABASE_URL = "postgresql+psycopg://app:app@127.0.0.1:5433/administracion_test"
-uv run alembic upgrade head
+# y migrar con DATABASE_URL apuntando a 5433, como en el punto 2
 ```
 
-**El `docker compose cp` no es un rodeo.** En PowerShell, `... > fichero.dump` reescribe la salida como
-texto y corrompe un dump binario (`-Fc`). Sacando el fichero con `cp` no pasa por la shell.
-
-## Si algo se rompe
-
-"Recuperar una tabla" son cuatro problemas distintos con cuatro respuestas distintas. Lo primero es
-saber cuál tienes.
-
-| Qué ha pasado | Cómo se recupera | Qué recuperas |
-|---|---|---|
-| Una migración **falla a mitad** | Nada que hacer: Postgres deshace la transacción entera | Todo. La base queda como antes |
-| Aplicaste una migración **que no querías** | `alembic downgrade -1` | **La estructura, no los datos** |
-| **Datos** borrados o machacados por error | Restaurar un backup | Lo que hubiera en el backup |
-| La base local está **inservible** (solo desarrollo) | `docker compose down -v` y volver a migrar | Una base limpia y vacía |
-| El **marcador** no cuadra con la realidad | `alembic stamp <rev>` | Solo el marcador; el esquema no se toca |
-
-### El `downgrade` devuelve la estructura, no los datos
-
-Es lo más importante de esta sección. Si una migración hizo `drop_column("users", "phone")`, su
-`downgrade` hace `add_column("users", "phone")` y te devuelve **la columna vacía**: los teléfonos ya no
-existen. Alembic versiona la estructura de la base, no su contenido.
-
-Por eso:
-
-- Cualquier migración que borre datos lleva comentario `# DESTRUCTIVE:` (regla 3) **y backup antes**.
-- Cuando quieras poder volver atrás con los datos incluidos, usa expand/contract: añade la columna
-  nueva y deja la vieja hasta estar seguro. La columna vieja es la copia de seguridad.
-
-### Backup y restauración
+## 16. Copia de seguridad y restauración
 
 ```powershell
-# Copia completa (esquema + datos)
 docker compose exec db pg_dump -U app -d administracion -Fc -f /tmp/backup.dump
 docker compose cp db:/tmp/backup.dump .\backup.dump
-
-# Restaurar encima
 docker compose cp .\backup.dump db:/tmp/backup.dump
 docker compose exec db pg_restore -U app -d administracion --clean --if-exists /tmp/backup.dump
 ```
 
-Una sola tabla, cuando solo se ha roto esa:
+Restaura siempre entera: por tablas sueltas no se comprueban las FK de las demás, y quedan referencias
+a filas que ya no existen. **No hay backups automatizados**: hoy la copia la haces tú.
+
+## 17. Tests de migraciones
 
 ```powershell
-docker compose exec db pg_dump -U app -d administracion -Fc -t users -f /tmp/users.dump
-docker compose exec db pg_restore -U app -d administracion --clean --if-exists -t users /tmp/users.dump
+docker compose up -d --wait          # los tests EXIGEN las bases levantadas
+uv run pytest --test-alembic
 ```
 
-Restaurar una tabla suelta **no comprueba las claves foráneas de las demás**: si `users` vuelve a un
-estado anterior y `plans` no, puedes acabar con referencias a planes que ya no existen. Ante la duda,
-restaura entera.
+`pytest-alembic` comprueba que hay un solo head, que la cadena sube desde cero, que el modelo coincide
+con el DDL resultante y que **todos los `downgrade` funcionan**. Sin el flag no se ejecuta ninguno y la
+suite da verde igualmente; el CI sí lo pasa.
 
-### Corrupción de verdad
+Corren contra `db_test` (5433), **nunca** contra desarrollo: el test de ida y vuelta hace `downgrade`
+hasta base. Dos salvaguardas lo impiden: `alembic_engine` aborta si `TEST_DATABASE_URL` coincide con
+`DATABASE_URL`, y `env.py` usa la conexión que le inyecta pytest. (`test_health_db.py` es la excepción:
+apunta a `DATABASE_URL`.)
 
-Si Postgres devuelve errores de página o de checksum, eso no es Alembic ni SQLAlchemy: es el
-almacenamiento. Se sale de ahí restaurando un backup, y no hay atajo. En este proyecto **no hay backups
-automatizados todavía** — hoy, en desarrollo, la copia la haces tú antes de tocar algo delicado.
+> **El agujero:** esa comparación es por igualdad exacta de cadena. Dos URLs distintas apuntando a la
+> misma base (`localhost` frente a `127.0.0.1`) la burlan, y el `downgrade base` cae sobre tu base de
+> trabajo. Otra razón para la regla 8 de [§2](#2-reglas-que-no-se-negocian).
 
-En el momento en que haya un entorno desplegado, `pg_dump` programado y point-in-time recovery
-(`archive_mode` + WAL) dejan de ser opcionales. Está anotado como pendiente.
+## 18. Dos heads
 
-## Problemas
+Dos ramas partieron de la misma revisión, así que sus migraciones comparten `down_revision`. Git las
+mergea sin protestar —los ficheros no se tocan entre sí— y la cadena queda con dos finales. Se arregla
+con `alembic merge`, que crea una revisión de unión sin DDL. Se evita con la regla 4 de
+[§2](#2-reglas-que-no-se-negocian).
 
-| Síntoma | Causa / solución |
+## 19. Qué hace el CI con tu PR
+
+Solo se dispara `on: pull_request`. Un commit directo a `main` no pasa por aquí.
+
+| Paso | Qué has hecho mal si falla |
 |---|---|
-| Comando colgado ~30 s sin error | Alguien usó `localhost`. Debe ser `127.0.0.1`: `localhost` resuelve primero a `::1` y docker publica solo en IPv4 |
-| `connection refused` | Falta `docker compose up -d --wait`. `-d` a secas retorna antes de que Postgres acepte conexiones |
-| `ValidationError` al importar Settings | Un valor del `.env` no casa con el tipo declarado (p. ej. `PORT=abc`). Las claves **no** declaradas no dan error: `settings.py` usa `extra="ignore"` |
-| Migración vacía | Falta el import en `entities/__init__.py` |
-| `Can't locate revision '...'` | El marcador apunta a un fichero borrado. **`alembic stamp head --purge`** (`stamp head` a secas falla igual: resuelve la revisión actual antes de escribir). Solo si el esquema ya coincide con head |
-| `database "..." does not exist` con compose correcto | `initdb` solo aplica `POSTGRES_*` con el datadir vacío. `docker compose down -v` (destruye los datos locales) |
-| Dos heads | Ver abajo |
-| `uv run uvicorn` bloqueado en Windows | Smart App Control. Usar `uv run python -m uvicorn` |
-| `psql` se queda en `--More--` | Añadir `-P pager=off` |
-| Un cambio en un campo JSONB no se guarda, sin error | Falta `MutableDict` en esa columna |
-| Cualquier cosa tarda ~130 s en fallar | Falta `connect_timeout` en ese `create_engine`: manda el timeout TCP del sistema operativo |
+| `uv sync --locked` | Tocaste `pyproject.toml` sin regenerar `uv.lock` |
+| `check_destructive_migrations.py` (estático, falla en segundos) | Un `upgrade()` borra datos sin marca ([§7](#7-cómo-funciona--destructive)) |
+| `alembic upgrade head` | La migración no aplica sobre una base limpia |
+| `alembic check` | Cambiaste una entidad y no generaste su migración |
+| `pytest --test-alembic` | Un test rojo, o un `downgrade` que no deshace |
 
-`alembic.ini` se lee con `encoding="locale"`, no UTF-8: sus comentarios van **sin tildes** o salen como mojibake en Linux.
-
-### Dos heads
-
-Dos ramas partieron de la misma revisión y cada una creó la suya, así que las dos tienen el mismo
-`down_revision`. Git las mergea sin protestar —los ficheros no se tocan entre sí— y queda una cadena
-con dos finales, así que `upgrade head` no sabe cuál aplicar. Se arregla con una revisión de unión,
-que no contiene DDL:
-
-```powershell
-uv run alembic heads                              # confirma que hay dos
-uv run alembic merge -m "merge a1b2c3 y d4e5f6" a1b2c3 d4e5f6
-uv run alembic upgrade head
-```
-
-Se evita coordinando: quien vaya a migrar, que parta de `develop` actualizado.
-
-## Reglas de equipo
-
-1. Una migración = un cambio lógico.
-2. Migraciones de datos separadas de las de esquema.
-3. **Todo `drop` lleva backup y marca.** Copia antes de aplicarla:
-
-   ```powershell
-   docker compose exec db pg_dump -U app -d administracion -Fc -f /tmp/pre-<revision>.dump
-   docker compose cp db:/tmp/pre-<revision>.dump .\pre-<revision>.dump
-   ```
-
-   Y el `upgrade()` lleva comentario `# DESTRUCTIVE:` diciendo **qué se pierde**. No es
-   documentación opcional: [scripts/check_destructive_migrations.py](../scripts/check_destructive_migrations.py)
-   corre en CI y deja la PR en rojo si un `upgrade()` usa `drop_table`, `drop_column` o SQL con
-   DELETE/TRUNCATE/DROP sin esa marca. Los `drop` de `downgrade()` no cuentan: son el inverso normal
-   de un `create_table`.
-4. **Una migración publicada no se edita.** Se corrige con otra encima (roll-forward): editarla después
-   de que alguien la haya aplicado deja su base en un estado que ya no corresponde a su id.
-5. `pyproject.toml` y `uv.lock` se commitean juntos, siempre.
-6. Prohibido `alembic downgrade`, `pytest --test-alembic` o `docker compose down -v` contra un host que
-   no sea `127.0.0.1`. Comprobar el destino con `alembic current` antes.
-7. Los ficheros van en LF. Editando en Windows es fácil escribir CRLF sin darse cuenta y entonces la PR
-   muestra el fichero entero reescrito. Comprobar con `git diff --numstat` antes de commitear.
-
-## Cuando haya despliegue
-
-Todavía no aplica, no hay ningún entorno desplegado.
-
-- `DATABASE_URL` desde los secretos del entorno, nunca desde un `.env` ni del default de `settings.py`.
-- `alembic upgrade head` como paso del despliegue, antes de arrancar la aplicación.
-- **Backup antes de migrar.** En producción se hace roll-forward, no `downgrade`.
-- Tablas grandes: `ALTER TABLE` toma un lock `ACCESS EXCLUSIVE`. Índices con `CREATE INDEX CONCURRENTLY`
-  dentro de `op.get_context().autocommit_block()`; cambios incompatibles con patrón expand/contract.
-- **PgBouncer** en modo `transaction` es incompatible con psycopg 3 por defecto (`prepare_threshold=5`):
-  haría falta `connect_args={"prepare_threshold": None}` y `poolclass=NullPool`.
+Las migraciones se aplican contra `db` (5432) y los tests de migración contra `db_test` (5433). Los
+tests corren con `continue-on-error` para que el log se suba siempre como artefacto y un paso posterior
+falle el job; ese paso va con `shell: bash` a propósito, porque sin `pipefail` el código de salida sería
+el del `tee` y **un test roto pasaría en verde**.
