@@ -165,3 +165,7 @@ cython_debug/
 # PyCharm directories
 .idea/
 *.iml
+
+# Claude Code (local, no se comparte con el equipo)
+CLAUDE.md
+.claude/
