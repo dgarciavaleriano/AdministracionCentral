@@ -1,36 +1,77 @@
-version: '1.0'
+# docker compose up -d --wait     arrancar y esperar a que acepte conexiones
+# docker compose down -v          parar y borrar los datos
 
 services:
-  administracioncentral-db:
-    image: postgres:15
-    container_name: administracioncentral-db
+  db:
+    image: postgres:17-alpine
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secret123
-      POSTGRES_DB: administracion_central
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: administracion
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - administracion-central-volume:/var/lib/postgresql/data
-    networks:
-      - administracion-central-network
-    
-  administracioncentral:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d administracion"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Base desechable para tests: vive en RAM, no deja nada al parar.
+  db_test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: administracion_test
+      # Subdirectorio: Postgres rechaza un tmpfs montado justo en PGDATA.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d administracion_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Viene de develop (8827988). Apunta al servicio `db` de arriba, no a una base
+  # propia: dos Postgres publicando el 5432 se pisan.
+  # Publicado en el 8080, no en el 8000 que traía develop: el frontal NiceGUI
+  # (ui/main.py) ya usa el 8000, y ui/.env.example espera la API en el 8080.
+  api:
+    # Detrás de un perfil a propósito: el flujo del README es `docker compose up`
+    # (solo las bases) y luego `uv run python src/main.py` en local. Sin esto, el
+    # contenedor cogería el 8080 y main.py no podría arrancar.
+    #   docker compose --profile app up -d --wait    -> bases + API en contenedor
+    profiles: ["app"]
     build:
       context: .
       dockerfile: Dockerfile
+    # `.env` está en .gitignore, así que puede no existir: sin required:false
+    # `docker compose up` aborta en una máquina recién clonada.
     env_file:
-      - .env
-    networks:
-      - administracion-central-network
+      - path: .env
+        required: false
+    environment:
+      # Dentro del contenedor, `db` es el nombre del servicio; 127.0.0.1 sería
+      # el propio contenedor. Y el dialecto es psycopg, que es el que está en
+      # las dependencias (el Dockerfile trae un DATABASE_URL con +asyncpg que
+      # no funciona: asyncpg no está instalado). `environment` gana a `env_file`.
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/administracion
+      # settings.host por defecto es "localhost", que dentro del contenedor
+      # escucha solo en su loopback y deja el puerto publicado sin responder.
+      HOST: 0.0.0.0
+      PORT: 8080
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8080:8080"
     depends_on:
-        - administracioncentral-db
+      db:
+        condition: service_healthy
 
 volumes:
-  administracion-central-volume:
-  
-networks:
-  administracion-central-network:
-    driver: bridge
+  postgres_data:
