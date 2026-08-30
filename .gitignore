@@ -169,3 +169,6 @@ cython_debug/
 # Claude Code (local, no se comparte con el equipo)
 CLAUDE.md
 .claude/
+
+#Nice-GUI storage folder
+.nicegui/

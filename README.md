@@ -11,6 +11,13 @@ uv run alembic upgrade head
 uv run python src/main.py
 ```
 
+`docker compose up` levanta solo las bases de datos. Para arrancar además la API
+dentro de un contenedor (en vez de con `main.py` en local):
+
+```powershell
+docker compose --profile app up -d --wait
+```
+
 ## Documentación
 
 - [Modelo de datos](docs/modelo-de-datos.md) — esquema, decisiones y cómo funciona la capa de persistencia.
