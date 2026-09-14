@@ -56,6 +56,9 @@ jobs:
         with:
           version: "latest"
           enable-cache: true
+          # Solo el lock de la API: el glob por defecto es **/uv.lock, y desde que
+          # el frontal tiene el suyo cualquier cambio alli invalidaria esta cache.
+          cache-dependency-glob: "uv.lock"
           python-version: '3.14'
 
       - name: Install dependencies
@@ -89,6 +92,60 @@ jobs:
         with:
           name: test-results
           path: test-results/
+
+      - name: Fail the job if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
+
+  Frontal:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    # El frontal es un proyecto uv independiente (ui/pyproject.toml) con su propio
+    # lock. Sus tests usan el fixture User de NiceGUI, que no abre navegador ni
+    # habla con la API: por eso este job no necesita `services` ni migraciones.
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "ui/uv.lock"
+          python-version: '3.14'
+
+      - name: Install dependencies
+        # --locked falla si ui/uv.lock no cuadra con ui/pyproject.toml
+        run: uv sync --locked
+
+      - name: Run tests and save exit code
+        id: tests
+        # `shell: bash` activa pipefail: sin el, el exit code seria el de `tee`
+        # y un test roto pasaria como verde.
+        shell: bash
+        run: |
+            mkdir -p test-results
+            # 2>&1: sin esto el artefacto queda VACIO si pytest aborta antes de arrancar
+            uv run pytest --capture=tee-sys 2>&1 | tee test-results/results.log
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Nombre distinto del job de la API: upload-artifact@v4 falla si dos
+          # jobs suben un artefacto con el mismo nombre.
+          name: test-results-frontal
+          # `path` no lo toca defaults.run.working-directory: solo afecta a `run`.
+          path: ui/test-results/
 
       - name: Fail the job if tests failed
         if: steps.tests.outcome == 'failure'
