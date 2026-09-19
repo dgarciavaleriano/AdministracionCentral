@@ -160,7 +160,11 @@ cython_debug/
 #.idea/
 
 # VS Code
-.vscode/
+# `.vscode/*` y no `.vscode/`: git no puede reincluir un fichero si el
+# directorio padre esta excluido, y queremos compartir las tareas de arranque
+# (Ctrl+Shift+B) sin compartir el settings.json de cada uno.
+.vscode/*
+!.vscode/tasks.json
 
 # PyCharm directories
 .idea/
