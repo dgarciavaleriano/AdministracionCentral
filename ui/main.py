@@ -4,11 +4,9 @@ Administración Central (AC) - Punto de entrada principal
 """
 
 from nicegui import ui
-from dotenv import load_dotenv
-from utils.constants import APP_TITLE
-import os
 
-load_dotenv()
+from config.settings import SECRETOS_PUBLICOS, settings
+from utils.constants import APP_TITLE
 
 @ui.page('/')
 def landing():
@@ -29,18 +27,19 @@ def dashboard():
     create_dashboard_page()
 
 if __name__ in {'__main__', '__mp_main__'}:
-    storage_secret = os.getenv('NICEGUI_STORAGE_SECRET')
-    if not storage_secret:
+    if settings.nicegui_storage_secret in SECRETOS_PUBLICOS:
         import warnings
         warnings.warn(
-            "NICEGUI_STORAGE_SECRET no está configurado. "
-            "Crea un fichero ui/.env con NICEGUI_STORAGE_SECRET=<secreto> antes de arrancar.",
+            "NICEGUI_STORAGE_SECRET tiene un valor que está publicado en el "
+            "repositorio, así que no firma nada: vale para trabajar en local, "
+            "pero define uno propio en ui/.env (o en el entorno) antes de desplegar.",
             stacklevel=1,
         )
     ui.run(
         title=APP_TITLE,
         favicon='🏛️',
         language='es',
-        storage_secret=storage_secret,
-        port=8000,
+        storage_secret=settings.nicegui_storage_secret,
+        host=settings.ui_host,
+        port=settings.ui_port,
     )

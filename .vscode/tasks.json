@@ -1,0 +1,123 @@
+// Tareas de arranque del proyecto. Este fichero SI se versiona (ver .gitignore):
+// es la configuracion compartida para que el proyecto arranque igual en
+// cualquier maquina. Por eso todo usa ${workspaceFolder} y nunca rutas absolutas.
+//
+//   Ctrl+Shift+B          -> "Arrancar todo"
+//   Ctrl+Shift+P > Tasks: Run Task -> el resto
+//
+// Los `label` son la clave que usa `dependsOn`: si renombras una tarea, cambialo
+// tambien ahi o la cadena se rompe en silencio.
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bases de datos",
+      "detail": "Levanta db (5432) y db_test (5433) y espera a que acepten conexiones",
+      "type": "shell",
+      "command": "docker compose up -d --wait",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Migraciones",
+      "detail": "alembic upgrade head. Necesita la base viva: por eso va despues.",
+      "type": "shell",
+      // `python -m alembic` y no `alembic` a secas: el .exe que uv deja en
+      // .venv/Scripts no va firmado, y Smart App Control de Windows lo bloquea
+      // (os error 4551). Ejecutarlo como modulo no pasa por ese shim.
+      "command": "uv run python -m alembic upgrade head",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      // Genera el fichero de migracion y PARA. No lo aplica a proposito: el
+      // autogenerate se equivoca en varios casos (renombrar una columna lo
+      // resuelve como drop+add, o sea perdida de datos), asi que entre generar
+      // y aplicar hay que leer el fichero. Ver migrations/Guide.md seccion 5.
+      "label": "Nueva migracion",
+      "detail": "alembic revision --autogenerate. Pide el mensaje y deja el fichero para revisarlo.",
+      "type": "shell",
+      "command": "uv run python -m alembic revision --autogenerate -m \"${input:mensajeMigracion}\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Comprobar migraciones destructivas",
+      "detail": "Falla si una migracion borra datos en upgrade() sin marcarlo. Es lo mismo que corre la CI.",
+      "type": "shell",
+      // Estatico: no necesita las bases levantadas.
+      "command": "uv run python scripts/check_destructive_migrations.py",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "API FastAPI",
+      "detail": "uvicorn con recarga en http://127.0.0.1:8080",
+      "type": "shell",
+      // --app-dir src es imprescindible: app.py vive en src/, y el `pythonpath`
+      // del pyproject.toml solo lo lee pytest, no uvicorn.
+      "command": "uv run python -m uvicorn app:app --reload --host 127.0.0.1 --port 8080 --app-dir src",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Front NiceGUI",
+      "detail": "NiceGUI en http://127.0.0.1:8000",
+      "type": "shell",
+      // `uv run` desde ui/ usa el entorno del frontal (ui/pyproject.toml), que es
+      // un proyecto independiente del de la API, y lo crea solo si no existe.
+      "command": "uv run python main.py",
+      "options": { "cwd": "${workspaceFolder}/ui" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      // Tarea intermedia: "dependsOrder" es uno por tarea, asi que la cadena
+      // "en orden, pero los dos ultimos a la vez" necesita este nivel de mas.
+      "label": "API + Front",
+      "detail": "Los dos servidores a la vez (ultimo paso de «Arrancar todo»)",
+      "dependsOn": ["API FastAPI", "Front NiceGUI"],
+      "dependsOrder": "parallel",
+      // Tambien en las tareas compuestas: sin el, VSCode abre el dialogo de
+      // "Select for which kind of errors and warnings to scan the task output"
+      // al lanzarlas desde Tasks: Run Task, y la opcion "Never scan" reescribe
+      // este fichero, que va versionado.
+      "problemMatcher": []
+    },
+    {
+      "label": "Arrancar todo",
+      "detail": "Bases de datos -> migraciones -> API y front en paralelo",
+      "dependsOn": ["Bases de datos", "Migraciones", "API + Front"],
+      "dependsOrder": "sequence",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests",
+      "detail": "pytest de la API + comprobaciones de Alembic. Necesita «Bases de datos».",
+      "type": "shell",
+      "command": "uv run python -m pytest --test-alembic",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests frontal",
+      "detail": "pytest del frontal NiceGUI. No necesita ni base de datos ni API.",
+      "type": "shell",
+      "command": "uv run python -m pytest",
+      "options": { "cwd": "${workspaceFolder}/ui" },
+      "problemMatcher": []
+    }
+  ],
+  // Lo que VSCode pregunta en un cuadro de texto al lanzar "Nueva migracion".
+  // El id es el que se referencia como ${input:mensajeMigracion}.
+  "inputs": [
+    {
+      "id": "mensajeMigracion",
+      "type": "promptString",
+      "description": "Mensaje de la migracion (ej: crear tabla documents)"
+    }
+  ]
+}
