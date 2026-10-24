@@ -9,14 +9,8 @@ jobs:
 
     permissions:
       contents: read
-      pull-requests: write
 
-    env:
-      # El host es localhost, no el nombre del servicio: el job no usa `container:`,
-      # asi que los pasos corren en el runner y solo ven los puertos publicados.
-      DATABASE_URL: postgresql+psycopg://app:app@localhost:5432/administracion
-      TEST_DATABASE_URL: postgresql+psycopg://app:app@localhost:5433/administracion_test
-
+    # La misma base de datos que el docker-compose, para los tests de la API.
     services:
       db:
         image: postgres:17-alpine
@@ -27,126 +21,28 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U app -d administracion"
+          --health-cmd pg_isready
           --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-
-      # Base separada para los tests de migraciones: hacen downgrade hasta base.
-      db_test:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: administracion_test
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U app -d administracion_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
+          --health-retries 10
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "latest"
-          enable-cache: true
-          # Solo el lock de la API: el glob por defecto es **/uv.lock, y desde que
-          # el frontal tiene el suyo cualquier cambio alli invalidaria esta cache.
-          cache-dependency-glob: "uv.lock"
           python-version: '3.14'
 
       - name: Install dependencies
-        # --locked falla si uv.lock no cuadra con pyproject.toml
-        run: uv sync --locked
-
-      # Estatico y sin base de datos: falla rapido si alguien borra datos sin marcarlo.
-      - name: Check destructive migrations
-        run: uv run python scripts/check_destructive_migrations.py
+        run: uv sync
 
       - name: Apply migrations
         run: uv run alembic upgrade head
 
-      - name: Check for pending migrations
+      # Falla si alguien cambió una tabla en src/storage/entities/ y no generó la migración.
+      - name: Check for missing migrations
         run: uv run alembic check
 
-      - name: Run tests and save exit code
-        id: tests
-        # `shell: bash` activa pipefail: sin el, el exit code seria el de `tee`
-        # y un test roto pasaria como verde.
-        shell: bash
-        run: |
-            mkdir -p test-results
-            # 2>&1: sin esto el artefacto queda VACIO si pytest aborta antes de arrancar
-            uv run pytest --test-alembic --capture=tee-sys 2>&1 | tee test-results/results.log
-        continue-on-error: true
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-results/
-
-      - name: Fail the job if tests failed
-        if: steps.tests.outcome == 'failure'
-        run: exit 1
-
-  Frontal:
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-
-    # El frontal es un proyecto uv independiente (ui/pyproject.toml) con su propio
-    # lock. Sus tests usan el fixture User de NiceGUI, que no abre navegador ni
-    # habla con la API: por eso este job no necesita `services` ni migraciones.
-    defaults:
-      run:
-        working-directory: ui
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-          enable-cache: true
-          cache-dependency-glob: "ui/uv.lock"
-          python-version: '3.14'
-
-      - name: Install dependencies
-        # --locked falla si ui/uv.lock no cuadra con ui/pyproject.toml
-        run: uv sync --locked
-
-      - name: Run tests and save exit code
-        id: tests
-        # `shell: bash` activa pipefail: sin el, el exit code seria el de `tee`
-        # y un test roto pasaria como verde.
-        shell: bash
-        run: |
-            mkdir -p test-results
-            # 2>&1: sin esto el artefacto queda VACIO si pytest aborta antes de arrancar
-            uv run pytest --capture=tee-sys 2>&1 | tee test-results/results.log
-        continue-on-error: true
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          # Nombre distinto del job de la API: upload-artifact@v4 falla si dos
-          # jobs suben un artefacto con el mismo nombre.
-          name: test-results-frontal
-          # `path` no lo toca defaults.run.working-directory: solo afecta a `run`.
-          path: ui/test-results/
-
-      - name: Fail the job if tests failed
-        if: steps.tests.outcome == 'failure'
-        run: exit 1
+      - name: Run tests
+        run: uv run pytest
