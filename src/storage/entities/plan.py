@@ -11,7 +11,7 @@ class Plan(Base):
     __tablename__ = "plans"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), unique=True, nullable=False)
+    name = Column(String, unique=True, nullable=False)
 
     max_drafts = Column(Integer, nullable=False)
     max_sessions_per_day = Column(Integer, nullable=False)
