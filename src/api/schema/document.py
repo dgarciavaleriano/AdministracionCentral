@@ -1,4 +1,5 @@
 import base64
+import datetime
 import uuid
 from pydantic import BaseModel, ConfigDict, field_serializer, Field, field_validator
 from config.logger import Logger
@@ -33,3 +34,13 @@ class DocumentResponse(BaseModel):
         except Exception as e:
             logger.error("No se ha podido codificar en base64 el contenido del archivo: %s", e)
             raise ValueError("No se ha podido codificar en base64 el contenido del archivo")
+
+class DocumentSummary(BaseModel):
+    """Un documento sin su contenido, para los listados: el fichero solo se
+    devuelve al pedir un documento concreto."""
+    id: uuid.UUID = Field(..., description="Uuid del documento")
+    user_id: uuid.UUID = Field(..., description="Uuid del usuario al que pertenece el documento")
+    file_name: str = Field(..., description="Nombre del archivo que sube el usuario")
+    uploaded_at: datetime.datetime | None = Field(None, description="Fecha de subida")
+
+    model_config = ConfigDict(from_attributes=True)
