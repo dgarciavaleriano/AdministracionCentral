@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from config.logger import Logging
+from config.logger import Logger
 from storage.connectors.db import get_db
 
 router = APIRouter()
 
-logging = Logging(__name__)
+logger = Logger.get_logger(__name__)
 
 @router.get("/check")
 async def check():
@@ -19,6 +19,6 @@ def check_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
     except Exception as exc:
-        logging.error("La base de datos no responde: %s", exc)
+        logger.error("La base de datos no responde: %s", exc)
         raise HTTPException(status_code=503, detail={"db": "error"})
     return {"db": "ok"}

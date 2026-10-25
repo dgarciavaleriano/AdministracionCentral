@@ -1,10 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from config.logger import Logging
+from config.logger import Logger
 from config.settings import settings
 
-logging = Logging(__name__)
+logger = Logger.get_logger(__name__)
 
 engine = create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
@@ -22,7 +22,7 @@ def get_db():
         db.commit()
     except Exception:
         db.rollback()
-        logging.error("Error en la sesión de base de datos", exc_info=True)
+        logger.error("Error en la sesión de base de datos", exc_info=True)
         raise
     finally:
         db.close()
