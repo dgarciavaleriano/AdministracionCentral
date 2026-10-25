@@ -3,6 +3,7 @@ from starlette.requests import Request
 
 from api.routers import users
 from api.routers import health
+from api.routers import documents
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -27,3 +28,6 @@ app.include_router(users.router, prefix="/users",
 
 app.include_router(health.router, prefix="/health",
                    tags=["health"])
+
+app.include_router(documents.router, prefix="/documents",
+                   tags=["documents"])

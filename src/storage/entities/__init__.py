@@ -8,5 +8,6 @@ la tabla que falta se omite en silencio.
 
 from storage.entities.plan import Plan
 from storage.entities.user import User
+from storage.entities.document import Document
 
-__all__ = ["Plan", "User"]
+__all__ = ["Plan", "User", "Document"]
