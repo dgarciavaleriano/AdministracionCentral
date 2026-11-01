@@ -4,8 +4,11 @@ from collections.abc import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from config.logger import Logging
 
 from config.settings import settings
+
+logging = Logging(__name__)
 
 engine = create_engine(
     settings.database_url,
@@ -31,5 +34,10 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        logging.error("Error en la sesión de base de datos", exc_info=True)
+        raise
     finally:
         db.close()
