@@ -165,6 +165,7 @@ cython_debug/
 # (Ctrl+Shift+B) sin compartir el settings.json de cada uno.
 .vscode/*
 !.vscode/tasks.json
+*.code-workspace
 
 # PyCharm directories
 .idea/
