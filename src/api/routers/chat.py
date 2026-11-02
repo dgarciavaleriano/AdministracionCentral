@@ -8,7 +8,7 @@ from langchain_core.runnables import Runnable
 from api.schema.chat import ChatRequest, Message
 from services.ai.llm import InferenceOrchestrator
 
-router = APIRouter(prefix="/chat", tags=["Chat"])
+router = APIRouter()
 
 # Decorador caché last-recently-used. Sin el decorador, get_llm() reconstruye
 # el InferenceOrchestrator y parsea el JSON de LLM_PROVIDERS en cada petición HTTP.
