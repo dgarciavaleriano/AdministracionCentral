@@ -60,3 +60,16 @@ def test_chat_stream_invalid_role_returns_422():
     assert response.status_code == 422
     
     app.dependency_overrides.clear()
+
+def test_chat_stream_empty_messages_returns_422():
+    """Valida que Pydantic rechace listas de mensajes vacías usando min_length=1 (HTTP 422)."""
+    app.dependency_overrides[get_llm] = override_get_llm
+    
+    payload = {
+        "messages": []
+    }
+    
+    response = client.post("/chat/stream", json=payload)
+    assert response.status_code == 422
+    
+    app.dependency_overrides.clear()
