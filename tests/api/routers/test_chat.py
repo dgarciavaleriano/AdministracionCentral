@@ -5,7 +5,7 @@ from api.routers.chat import router, get_llm
 
 # No importamos main.py. Levantamos una aplicación FastAPI() efímera que monta únicamente el router de chat, evitando acoplar el test a la base de datos PostgreSQL.
 app = FastAPI()
-app.include_router(router)
+app.include_router(router, prefix="/chat", tags=["Chat"])
 client = TestClient(app)
 
 class FakeChunk:
