@@ -1,9 +1,19 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Cargamos las variables del entorno en ../.env
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_path = BASE_DIR / ".env"
+load_dotenv(dotenv_path=env_path)
+
 from fastapi import FastAPI, status
 from starlette.requests import Request
 
 from api.routers import users
 from api.routers import health
 from api.routers import documents
+from api.routers import chat
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -31,3 +41,6 @@ app.include_router(health.router, prefix="/health",
 
 app.include_router(documents.router, prefix="/documents",
                    tags=["documents"])
+
+app.include_router(chat.router, prefix="/chat",
+                   tags=["chat"])

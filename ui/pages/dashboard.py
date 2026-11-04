@@ -5,11 +5,16 @@ from uuid import uuid4
 from nicegui import ui
 from utils.constants import APP_TITLE, APP_VERSION, TRAMITES, DEFAULT_AVATAR, AI_AVATAR
 from utils.themes import get_theme_css, create_theme_toggle, init_dark_mode
+# from services.api.client import ApiClient
+from services.api.async_client import AsyncApiClient
 
 def create_dashboard_page():
     """Crea la página del dashboard"""
     dark_mode = init_dark_mode()
     messages = []
+    
+    # Instanciamos el cliente API con la URL de tu backend FastAPI
+    client = AsyncApiClient(base_url="http://localhost:8080")
     
     ui.add_head_html(get_theme_css(dark_mode.value))
     
@@ -35,7 +40,7 @@ def create_dashboard_page():
                     with ui.card().classes(f'max-w-[70%] p-3 rounded-2xl {"message-bubble-own" if is_own else "message-bubble-other"}'):
                         if not is_own:
                             ui.label(msg_name).classes('text-xs font-bold text-blue-600 mb-1')
-                        ui.label(text).classes('text-sm leading-relaxed')
+                        ui.label(text).classes('text-sm leading-relaxed whitespace-pre-wrap') # whitespace respeta saltos de línea
                         ui.label(stamp).classes('text-xs opacity-50 mt-1')
                     
                     if is_own:
@@ -58,21 +63,58 @@ def create_dashboard_page():
             }, 50);
         ''')
     
-    def send_message():
-        """Envía mensaje"""
+    async def stream_ai_response():
+        """Consume el stream SSE del backend y actualiza la UI progresivamente."""
+        stamp = datetime.now().strftime('%H:%M')
+        # Añadimos un mensaje de IA vacío como marcador de posición
+        messages.append(('ai', 'Asistente AC', AI_AVATAR, "", stamp))
+        chat_messages.refresh()
+        
+        # Mapeamos el historial local al formato DTO requerido por el backend [{"role", "content"}]
+        backend_messages = [
+            {
+                "role": "user" if m[0] == user['id'] else "assistant",
+                "content": m[3]
+            }
+            for m in messages[:-1]  # Excluimos el marcador vacío actual
+        ]
+        
+        try:
+            full_response = ""
+            # Iteramos de forma asíncrona sobre los tokens del cliente HTTP
+            async for token in client.stream_chat(backend_messages):
+                full_response += token
+                # Actualizamos el último elemento de la tupla con el texto acumulado
+                messages[-1] = ('ai', 'Asistente AC', AI_AVATAR, full_response, stamp)
+                chat_messages.refresh()
+        except Exception as e:
+            error_msg = f"Error de conexión con el servidor: {e}"
+            messages[-1] = ('ai', 'Asistente AC', AI_AVATAR, error_msg, stamp)
+            chat_messages.refresh()
+
+    async def send_message():
+        """Envía el mensaje del usuario y dispara el stream de la IA."""
         if text_input.value.strip():
             stamp = datetime.now().strftime('%H:%M')
             messages.append((user['id'], user['name'], user['avatar'], text_input.value, stamp))
             text_input.value = ''
             chat_messages.refresh()
-            ui.timer(0.8, lambda msg=messages[-1][3]: add_ai_response(msg), once=True)
+            await stream_ai_response()
 
-    def send_suggested_message(query: str):
-        """Envía una consulta sugerida desde el estado vacío"""
+    async def send_suggested_message(query: str):
+        """Envía una consulta sugerida desde el estado vacío."""
         stamp = datetime.now().strftime('%H:%M')
         messages.append((user['id'], user['name'], user['avatar'], query, stamp))
         chat_messages.refresh()
-        ui.timer(0.4, lambda msg=query: add_ai_response(msg), once=True)
+        await stream_ai_response()
+    
+    async def handle_tramite_click(tramite: dict):
+        """Click en trámite de la barra lateral."""
+        auto_message = f"Quiero información sobre {tramite['name']}"
+        stamp = datetime.now().strftime('%H:%M')
+        messages.append((user['id'], user['name'], user['avatar'], auto_message, stamp))
+        chat_messages.refresh()
+        await stream_ai_response()
     
     def add_ai_response(user_message: str):
         """Respuesta de IA"""
@@ -93,14 +135,6 @@ def create_dashboard_page():
         
         messages.append(('ai', 'Asistente AC', AI_AVATAR, response, stamp))
         chat_messages.refresh()
-    
-    def handle_tramite_click(tramite: dict):
-        """Click en trámite"""
-        auto_message = f"Quiero información sobre {tramite['name']}"
-        stamp = datetime.now().strftime('%H:%M')
-        messages.append((user['id'], user['name'], user['avatar'], auto_message, stamp))
-        chat_messages.refresh()
-        add_ai_response(auto_message)
     
     # Layout principal
     with ui.row().classes('w-full h-screen no-wrap overflow-hidden'):
