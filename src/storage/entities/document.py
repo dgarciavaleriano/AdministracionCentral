@@ -1,29 +1,24 @@
-import uuid
-import datetime
-from storage.base import Base
-from storage.entities.mixins import Timestamped, UUIDPrimaryKey
-from sqlalchemy import  ForeignKey, String, text, LargeBinary
-from sqlalchemy.orm import Mapped, mapped_column
+"""Tabla `documents`: ficheros que sube cada usuario (nóminas, certificados...)."""
 
-class Document(UUIDPrimaryKey, Timestamped, Base):
+import uuid
+
+from sqlalchemy import Column, DateTime, ForeignKey, LargeBinary, String, Uuid, func
+
+from storage.connectors.db import Base
+
+
+class Document(Base):
     __tablename__ = "documents"
 
-    def __init__(self, user_id: uuid.UUID, file_name: str, file_content: bytes):
-        self.user_id = user_id
-        self.file_name = file_name
-        self.file_content = file_content
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Si se borra el usuario, se borran también sus documentos.
+    user_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String, nullable=False)
+    file_content = Column(LargeBinary, nullable=False)
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    file_name: Mapped[str] = mapped_column(String(255))
-
-    file_content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-
-    uploaded_at: Mapped[datetime.datetime] = mapped_column(
-        server_default=text("now()"), sort_order=102
-    )
-
-    def __repr__(self) -> str:
-        return f"<Document {self.file_name} uploaded by User {self.user_id}>"
+    def __repr__(self):
+        return f"<Document {self.file_name} del usuario {self.user_id}>"

@@ -10,14 +10,14 @@ class DocumentsController:
         self.document_repository = DocumentRepository(db)
 
     def create_document(self, user_id: uuid.UUID, file_name: str, file_content: bytes) -> Document | None:
-        document = Document(user_id, file_name, file_content)
+        document = Document(user_id=user_id, file_name=file_name, file_content=file_content)
         return self.document_repository.create(document)
 
     def get_document(self, id: uuid.UUID) -> Document | None:
         return self.document_repository.get(id)
 
     def update_document(self, id: uuid.UUID, user_id: uuid.UUID, file_name: str, file_content: bytes) -> Document | None:
-        document = Document(user_id, file_name, file_content)
+        document = Document(user_id=user_id, file_name=file_name, file_content=file_content)
         return self.document_repository.update(id, document)
 
     def delete_document(self, id: uuid.UUID) -> bool:

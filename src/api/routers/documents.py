@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from api.controllers.documents import DocumentsController
-from api.schema.document import DocumentResponse, DocumentRequest
+from api.schema.document import DocumentResponse, DocumentRequest, DocumentSummary
 
 router: APIRouter = APIRouter()
 
@@ -49,7 +49,7 @@ async def delete_document(id: uuid.UUID,
             detail="Documento no encontrado"
         )
 
-@router.get("/user/{id}", response_model=list[DocumentResponse], status_code=status.HTTP_200_OK)
+@router.get("/user/{id}", response_model=list[DocumentSummary], status_code=status.HTTP_200_OK)
 async def get_documents_by_user(id: uuid.UUID,
                        controller: DocumentsController = Depends()):
     document = controller.get_documents_by_user_id(id)

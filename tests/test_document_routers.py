@@ -168,3 +168,4 @@ def test_route_get_documents_by_user(client, mock_controller):
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["id"] == str(id)
+    assert "file_content" not in data[0]  # el listado no trae el contenido de los ficheros

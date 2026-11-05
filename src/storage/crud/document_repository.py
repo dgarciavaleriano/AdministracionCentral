@@ -3,9 +3,9 @@ from storage.crud.repository import Repository
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from storage.entities.document import Document
-from config.logger import Logging
+from config.logger import Logger
 
-logging = Logging(__name__)
+logger = Logger.get_logger(__name__)
 
 class DocumentRepository(Repository[Document]):
     def __init__(self, session: Session):
@@ -16,11 +16,11 @@ class DocumentRepository(Repository[Document]):
             self.session.add(entity)
             self.session.flush()
             self.session.refresh(entity)
-            logging.info(f"Creado el documento con el id: {entity.id}")
+            logger.info(f"Creado el documento con el id: {entity.id}")
             return entity
         except Exception as e:
             self.session.rollback()
-            logging.error("Error al crear el documento", e)
+            logger.error("Error al crear el documento: %s", e)
             return None
 
     def get(self, id: uuid.UUID) -> Document | None:
@@ -35,12 +35,12 @@ class DocumentRepository(Repository[Document]):
                 document.file_content = entity.file_content
                 self.session.flush()
                 self.session.refresh(document)
-                logging.info(f"Actualizado el documento con el id: {document.id}")
+                logger.info(f"Actualizado el documento con el id: {document.id}")
                 return document
             return None
         except Exception as e:
             self.session.rollback()
-            logging.error("Error al actualizar el documento", e)
+            logger.error("Error al actualizar el documento: %s", e)
             return None
 
     def delete(self, id: uuid.UUID) -> bool:
@@ -48,7 +48,7 @@ class DocumentRepository(Repository[Document]):
         if document:
             self.session.delete(document)
             self.session.flush()
-            logging.info(f"Eliminado el documento con el id: {document.id}")
+            logger.info(f"Eliminado el documento con el id: {document.id}")
             return True
         return False
 
