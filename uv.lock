@@ -47,11 +47,8 @@ requires-dist = [
 dev = [
     { name = "httpx2", specifier = ">=2.9.1" },
     { name = "pytest", specifier = ">=9.1.1" },
-<<<<<<< HEAD
     { name = "pytest-alembic", specifier = ">=0.12.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.1.post1" },
-=======
->>>>>>> origin/develop
 ]
 
 [[package]]
