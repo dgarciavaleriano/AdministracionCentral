@@ -55,3 +55,9 @@ class DocumentRepository(Repository[Document]):
     def get_by_user_id(self, user_id: uuid.UUID) -> list[Document]:
         query = select(Document).where(Document.user_id == user_id)
         return list(self.session.scalars(query).all())
+
+    def get_all(self):
+        return self.session.query(Document).order_by(Document.fecha.desc()).all()
+        
+    def get_by_filename(self, file_name: str):
+        return self.session.query(Document).filter(Document.file_name == file_name).first()

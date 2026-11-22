@@ -15,7 +15,11 @@ class Document(Base):
     user_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     file_name = Column(String, nullable=False)
     file_content = Column(LargeBinary, nullable=False)
-
+    file_path = Column(String, nullable=True)
+    fecha_boe = Column(String, nullable=True)
+    tipo = Column(String, default="BOE")
+    tamaño = Column(String, default="Desconocido")
+    estado = Column(String, default="Pendiente") # Pendiente, Procesado  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())

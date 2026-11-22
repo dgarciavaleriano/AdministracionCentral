@@ -1,40 +1,39 @@
-// Ctrl+Shift+B arranca todo. El resto de tareas: Ctrl+Shift+P > Tasks: Run Task.
 {
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Base de datos",
+      "label": "Full Execute",
+      "dependsOn": ["Bases de datos", "API FastAPI"],
+      "dependsOrder": "parallel"
+    },
+    {
+      "label": "Bases de datos",
+      "detail": "Levanta db (5432) y db_test (5433) y espera a que acepten conexiones",
       "type": "shell",
-      "command": "docker compose up -d --wait db",
+      "command": "docker compose up -d --wait",
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
-      "label": "Migraciones",
+      "label": "API FastAPI",
       "type": "shell",
-      "command": "uv run python -m alembic upgrade head",
-      "problemMatcher": []
-    },
-    {
-      "label": "API",
-      "type": "shell",
-      "command": "uv run python src/main.py",
+      "command": "uv run python -m uvicorn app:app --app-dir src --reload --host 127.0.0.1 --port 8080",
+      "options": { "cwd": "${workspaceFolder}" },
       "isBackground": true,
       "problemMatcher": []
     },
-    {
-      // En orden: base de datos, migraciones y la API.
-      "label": "Arrancar todo",
-      "dependsOn": ["Base de datos", "Migraciones", "API"],
-      "dependsOrder": "sequence",
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": []
-    },
-    {
-      "label": "Tests",
-      "type": "shell",
-      "command": "uv run python -m pytest",
-      "group": { "kind": "test", "isDefault": true },
-      "problemMatcher": []
-    }
+    // {
+    //   "label": "Full Execute",
+    //   "dependsOn": ["Bases de datos", "Migraciones", "API FastAPI"],
+    //   "dependsOrder": "parallel"
+    // },
+    // {
+    //   "label": "Migraciones",
+    //   "detail": "alembic upgrade head",
+    //   "type": "shell",
+    //   "command": "uv run alembic upgrade head",
+    //   "options": { "cwd": "${workspaceFolder}" },
+    //   "problemMatcher": []
+    // }
   ]
 }

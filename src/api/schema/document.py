@@ -44,3 +44,8 @@ class DocumentSummary(BaseModel):
     uploaded_at: datetime.datetime | None = Field(None, description="Fecha de subida")
 
     model_config = ConfigDict(from_attributes=True)
+
+class SyncBOEResponse(BaseModel):
+    message: str
+    downloaded_count: int
+    fecha: str

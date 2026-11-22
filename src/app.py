@@ -7,6 +7,7 @@ from api.routers import documents
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 
@@ -31,3 +32,12 @@ app.include_router(health.router, prefix="/health",
 
 app.include_router(documents.router, prefix="/documents",
                    tags=["documents"])
+
+# Permitir peticiones desde el frontend de NiceGUI (ajusta el puerto si es necesario)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

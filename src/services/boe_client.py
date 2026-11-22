@@ -20,6 +20,7 @@ class BOEClient:
         self.session = requests.Session()
         # El BOE no requiere autenticación, pero es buena práctica identificar el cliente.
         self.session.headers.update({
+            "Accept": "application/xml",  # Aseguramos que la API devuelva XML
             "User-Agent": "AdministracionCentral/1.0 (RAG-PDF-Downloader)"
         })
 

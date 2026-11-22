@@ -3,6 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.controllers.documents import DocumentsController
 from api.schema.document import DocumentResponse, DocumentRequest, DocumentSummary
 
+from sqlalchemy.orm import Session
+# Asume que tienes una dependencia get_db configurada
+from src.storage.connectors.db import get_db 
+from src.api.controllers import documents as doc_controller
+from src.api.schema.document import SyncBOEResponse
+
 router: APIRouter = APIRouter()
 
 @router.post("/", response_model= DocumentResponse, status_code=status.HTTP_201_CREATED)
@@ -59,3 +65,24 @@ async def get_documents_by_user(id: uuid.UUID,
             detail="No hay documentos asociados a este usuario"
         )
     return document
+
+@router.get("/", response_model=list[DocumentSummary], status_code=status.HTTP_200_OK)
+async def get_all_documents(controller: DocumentsController = Depends()):
+    """Devuelve todos los documentos registrados en el sistema."""
+    return controller.get_all_documents()
+
+@router.post("/sync-boe/{fecha}", response_model=SyncBOEResponse)
+def sync_boe_endpoint(fecha: str, db: Session = Depends(get_db), controller: DocumentsController = Depends()):
+    """
+    Descarga los documentos del BOE para una fecha específica (YYYY-MM-DD).
+    """
+    try:
+        # Usamos la instancia del controlador inyectada
+        count = controller.sync_boe_documents(fecha, db)
+        return SyncBOEResponse(
+            message="Sincronización completada con éxito",
+            downloaded_count=count,
+            fecha=fecha
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno al sincronizar: {str(e)}")
