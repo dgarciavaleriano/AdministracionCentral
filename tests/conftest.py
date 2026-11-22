@@ -1,56 +1,38 @@
-"""Fixtures de pytest-alembic. Corren contra `db_test` (5433), NUNCA contra la base
-de desarrollo: `test_up_down_consistency` hace `downgrade` hasta base.
+"""Fixtures comunes. Los tests usan la base de datos del docker-compose, con las
+migraciones aplicadas:
 
-Levantar antes:  docker compose up -d --wait db_test
+    docker compose up -d --wait db
+    uv run python -m alembic upgrade head
 """
 
-from pathlib import Path
-
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from config.settings import settings
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-@pytest.fixture
-def alembic_config():
-    # pytest-alembic resuelve estas rutas contra el directorio de trabajo, no
-    # contra el rootdir de pytest: las forzamos absolutas.
-    return {
-        "file": str(ROOT / "alembic.ini"),
-        "script_location": str(ROOT / "migrations"),
-    }
+from app import app
+from storage.connectors.db import engine, get_db
 
 
 @pytest.fixture
-def alembic_engine():
-    # Las variables de entorno ganan al .env, así que basta un TEST_DATABASE_URL
-    # mal puesto para que estos tests dropeen la base de trabajo.
-    if settings.test_database_url == settings.database_url:
-        pytest.fail(
-            f"TEST_DATABASE_URL apunta a la misma base que DATABASE_URL "
-            f"({settings.database_url}): estos tests harían DROP TABLE sobre ella."
-        )
+def db():
+    """Sesión para un test. Al acabar se deshace todo lo que se haya guardado,
+    incluso con commit: el test entero va dentro de una transacción que no se
+    confirma nunca, y cada commit se queda en un savepoint dentro de ella."""
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
 
-    # Sin connect_timeout, con db_test parada pytest se cuelga ~130 s (reintentos
-    # TCP del sistema operativo) sin imprimir nada.
-    engine = create_engine(
-        settings.test_database_url, connect_args={"connect_timeout": 5}
-    )
-    try:
-        with engine.connect():
-            pass
-    except OperationalError as error:
-        engine.dispose()
-        pytest.fail(
-            f"No hay base de datos en {settings.test_database_url}\n"
-            f"Arranca:  docker compose up -d --wait db_test\n({error.orig})"
-        )
+    yield session
 
-    try:
-        yield engine  # migrations/env.py lo recoge en config.attributes["connection"]
-    finally:
-        engine.dispose()
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture
+def client(db):
+    """Cliente de la API que usa la sesión del test en lugar de get_db: así lo que
+    guarden los endpoints también se deshace al acabar."""
+    app.dependency_overrides[get_db] = lambda: db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
